@@ -28,11 +28,25 @@ Run Stage 1 for one company:
 .venv/bin/python stage1_historical.py --ticker RELIANCE
 ```
 
+Build the Stage 1 report (68-page PDF plus a CSV of every assumption):
+
+```bash
+.venv/bin/python build_report.py
+```
+
 Tests:
 
 ```bash
 .venv/bin/python -m pytest tests/ -q
 ```
+
+## Output
+
+`outputs/valuation_stage1_report.pdf` is the deliverable: the assumption rules, every
+company's derived assumptions with reasoning and confidence, sector medians, and the
+exclusions. It is explicitly **not** a valuation, because nothing has been discounted yet.
+It is the document you would circulate before running a DCF, so the inputs get argued with
+while they are still cheap to change.
 
 ## How this connects to Module 1
 
@@ -182,5 +196,13 @@ Stage 1 is done. The remaining stages build on these assumptions:
 4. **Assumption rules are deliberately conservative.** Flat margins and capped terminal
    growth will understate a genuinely improving business. The bias is toward not being
    talked into a valuation, and it is a bias.
-5. **No accounting-quality checks.** One-off items, restatements and segment changes are
+5. **Cash includes short-term investments.** Indian companies park surplus in liquid funds
+   rather than bank balances, so the narrow cash line understates liquidity and would turn
+   net-cash companies into net-debt ones. Bajaj Auto reports 2,990 cr of cash against
+   11,094 cr including short-term investments.
+6. **Consolidated accounts include captive finance arms.** Bajaj Auto shows net debt
+   because its lending subsidiary consolidates into the parent. That is what the statements
+   say, but it is financing-company debt inside an industrial valuation and should be
+   separated before the enterprise-to-equity bridge is trusted.
+7. **No accounting-quality checks.** One-off items, restatements and segment changes are
    not detected. The engine trusts the filed numbers.

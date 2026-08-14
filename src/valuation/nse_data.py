@@ -44,7 +44,14 @@ INCOME_MAP = {
 }
 
 BALANCE_MAP = {
-    "cash": ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"],
+    # Cash including short-term investments comes first on purpose. Indian companies park
+    # surplus in liquid mutual funds and treasury instruments rather than bank balances, so
+    # the narrow "cash and equivalents" line badly understates available liquidity: Bajaj
+    # Auto reports 2,990 cr of cash against 11,094 cr including short-term investments.
+    # Net debt drives the enterprise-to-equity bridge, so using the narrow figure would
+    # turn a net-cash company into a net-debt one. The same broader measure is the right
+    # one for working capital, where the aim is to strip out non-operating liquid assets.
+    "cash": ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"],
     "current_assets": ["Current Assets"],
     "total_assets": ["Total Assets"],
     "current_liabilities": ["Current Liabilities"],
