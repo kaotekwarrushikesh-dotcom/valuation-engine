@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+# Cached market quotes. Regenerate by re-running; kept out of git so a valuation is
+# never silently affected by someone else's stale snapshot.
+data/market_cache/
+# Generated per-run outputs; regenerate with stage1_historical.py
+outputs/*.csv
