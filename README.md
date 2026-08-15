@@ -5,9 +5,9 @@
 Takes cleaned historical financials, builds defensible forecasts, and works through to a
 fair value per share. Built for **Nifty (NSE-listed) companies**, in INR.
 
-**Status: Stage 1 complete.** Historical analysis and forecast assumptions are built and
-tested. The DCF itself is not, and this README says so rather than implying otherwise. See
-[Roadmap](#roadmap).
+**Status: Stages 1 and 2 complete.** Assumptions, the forecast and FCFF are built and
+tested. Nothing is discounted yet, so there is no fair value: WACC is the next stage. This
+README says so rather than implying otherwise. See [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -22,13 +22,17 @@ Download the universe (33 Nifty companies):
 .venv/bin/python fetch_nifty.py
 ```
 
-Run Stage 1 for one company:
+Run the stages for one company:
 
 ```bash
 .venv/bin/python stage1_historical.py --ticker RELIANCE
 ```
 
-Build the Stage 1 report (68-page PDF plus a CSV of every assumption):
+```bash
+.venv/bin/python stage2_forecast.py --ticker RELIANCE
+```
+
+Build the report (PDF plus a CSV of every driver):
 
 ```bash
 .venv/bin/python build_report.py
@@ -42,11 +46,50 @@ Tests:
 
 ## Output
 
-`outputs/valuation_stage1_report.pdf` is the deliverable: the assumption rules, every
-company's derived assumptions with reasoning and confidence, sector medians, and the
-exclusions. It is explicitly **not** a valuation, because nothing has been discounted yet.
-It is the document you would circulate before running a DCF, so the inputs get argued with
-while they are still cheap to change.
+`outputs/valuation_report.pdf` is the deliverable: the assumption rules, every company's
+derived assumptions with reasoning and confidence, its forecast and full FCFF build,
+sector medians, cash flow across the universe, and the exclusions. It is explicitly **not**
+a valuation, because nothing has been discounted yet. It is the document you would
+circulate before running a DCF, so the inputs get argued with while they are still cheap
+to change.
+
+## Stage 2: forecast and FCFF
+
+```text
+EBIT
+- tax on EBIT          computed on unlevered EBIT, not on income after interest
+= NOPAT
++ D&A                  subtracted to reach EBIT but no cash left the business
+- capex                the actual cash spent on assets
+- change in NWC        the movement consumes cash, not the level
+= FCFF
+```
+
+Three choices carry the finance:
+
+**Tax is charged on unlevered EBIT and interest never appears.** FCFF is the cash available
+to every provider of capital before any financing decision. The reported tax charge is
+struck after interest, so it already contains the debt tax shield; using it here while WACC
+also carries the shield in the discount rate values the same benefit twice. This is the
+single most common way a DCF flatters itself, and it always moves the answer up.
+
+**Margins are forecast, EBIT is derived.** Projecting an EBITDA figure hides the operating
+assumption inside one number. Forecasting the margin states the claim. And deriving EBIT as
+EBITDA less D&A means the implied depreciation is always the one that was actually assumed,
+rather than two independent forecasts drifting apart.
+
+**Working capital moves with the revenue increment.** A company can carry a large
+receivables balance forever and use no cash, provided it is not growing. Applying the
+intensity to the revenue *added* is what "growth consumes cash in proportion to the revenue
+it adds" means arithmetically, and it avoids a phantom first-year step.
+
+A negative FCFF is not an error. Grasim consumes cash across the whole horizon, and the
+model says so rather than smoothing it away. Where terminal FCFF is not positive, a
+perpetuity growth terminal value is meaningless and the report says the exit multiple is
+the only defensible route.
+
+Every identity is re-derived independently in `validate_fcff` and the runner refuses to
+print results that fail. All 32 companies validate.
 
 ## How this connects to Module 1
 
@@ -154,6 +197,9 @@ valuation_engine/
 │   ├── data_bridge.py          statements to valuation inputs, quality gate
 │   ├── historical.py           trend classification and interpretation
 │   ├── assumptions.py          forecast assumptions with rationale
+│   ├── forecasting.py          revenue, EBITDA, D&A, EBIT projection
+│   ├── fcff.py                 FCFF build, review and validation
+│   ├── reporting.py            the PDF report
 │   └── market_data.py          prices, share counts, risk-free rate
 ├── tests/
 ├── outputs/
@@ -173,10 +219,8 @@ valuation_engine/
 
 ## Roadmap
 
-Stage 1 is done. The remaining stages build on these assumptions:
+Stages 1 and 2 are done. The remaining stages build on these cash flows:
 
-- **Stage 2** Forecast engine and FCFF: EBIT, taxes on EBIT, NOPAT, plus D&A, less capex,
-  less change in working capital, with every component visible per year
 - **Stage 3** WACC: CAPM cost of equity, beta by regression against the Nifty 50, after-tax
   cost of debt, market-value capital structure weights
 - **Stage 4** DCF: discounting, terminal value by both perpetual growth and exit multiple,
@@ -204,5 +248,10 @@ Stage 1 is done. The remaining stages build on these assumptions:
    because its lending subsidiary consolidates into the parent. That is what the statements
    say, but it is financing-company debt inside an industrial valuation and should be
    separated before the enterprise-to-equity bridge is trusted.
-7. **No accounting-quality checks.** One-off items, restatements and segment changes are
+7. **Reporting currency is inferred, not trusted.** Infosys reports in USD while trading in
+   INR, and HCL Technologies carries the same USD flag while reporting in rupees. The flag
+   is checked against market capitalisation and only believed when the implied
+   price-to-sales ratio is plausible. Where the evidence is ambiguous the statements are
+   left alone, because converting on a guess is a silent hundredfold error.
+8. **No accounting-quality checks.** One-off items, restatements and segment changes are
    not detected. The engine trusts the filed numbers.

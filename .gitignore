@@ -8,3 +8,4 @@ __pycache__/
 data/market_cache/
 # Generated per-run outputs; regenerate with stage1_historical.py
 outputs/*.csv
+outputs/*.pdf

@@ -28,6 +28,8 @@ from reportlab.platypus import (
 from src.valuation import assumptions as asmp
 from src.valuation import historical
 from src.valuation.data_bridge import data_quality_report, load_history
+from src.valuation.fcff import FCFF_LINES, build_fcff, validate_fcff
+from src.valuation.forecasting import build_forecast, forecast_vs_history
 from src.valuation.universe import INDIA_MARKET, NIFTY_UNIVERSE
 
 INK = colors.HexColor("#1a1a1a")
@@ -117,12 +119,20 @@ def analyse_universe(data_dir: Path) -> tuple[dict, pd.DataFrame, list]:
             analysis = historical.analyse(hist)
             a = asmp.derive(hist, analysis, ticker,
                             nominal_gdp_growth=INDIA_MARKET["nominal_gdp_growth"])
+            fc = build_forecast(hist, a, ticker)
+            fcff = build_fcff(fc)
+            errors = validate_fcff(fcff.frame)
+            if errors:
+                blocked.append((ticker, name, f"FCFF failed validation: {errors[0]}"))
+                continue
         except Exception as exc:  # noqa: BLE001 - report and continue
             blocked.append((ticker, name, str(exc)))
             continue
 
         results[ticker] = {"name": name, "sector": sector, "hist": hist,
-                           "analysis": analysis, "assumptions": a, "quality": quality}
+                           "analysis": analysis, "assumptions": a, "quality": quality,
+                           "forecast": fc, "fcff": fcff,
+                           "notes": forecast_vs_history(hist, fc) + fcff.warnings}
         rows.append({
             "ticker": ticker, "company": name, "sector": sector,
             "years": quality["years"],
@@ -135,6 +145,11 @@ def analyse_universe(data_dir: Path) -> tuple[dict, pd.DataFrame, list]:
             "confidence": overall_confidence(a),
             "growth_read": analysis["trends"]["revenue_growth"].classification,
             "margin_read": analysis["trends"]["ebitda_margin"].classification,
+            "fcff_y1": float(fcff.frame["fcff"].iloc[0]),
+            "fcff_terminal": float(fcff.frame["fcff"].iloc[-1]),
+            "fcff_margin": float(fcff.frame["fcff_margin"].mean()),
+            "reinvestment": float(((fcff.frame["capex"] + fcff.frame["change_in_nwc"])
+                                   / fcff.frame["nopat"]).mean()),
         })
 
     summary = pd.DataFrame(rows).sort_values(["sector", "ticker"]).reset_index(drop=True)
@@ -220,6 +235,33 @@ def company_section(ticker: str, entry: dict, st: dict, width: float) -> list:
                       pct(r["nwc_pct_revenue"]), pct(r["tax_rate"])])
     flow.append(_table(drows, [width * x for x in [0.12, 0.16, 0.17, 0.14, 0.15, 0.14, 0.12]]))
 
+    # Stage 2: the FCFF build, every component visible
+    fcff = entry["fcff"]
+    f = fcff.frame
+    flow.append(Paragraph("Free cash flow to the firm", st["h2"]))
+    frows = [[""] + [f"{int(y)}E" for y in f["year"]]]
+    for key, label in FCFF_LINES:
+        sign = -1.0 if key in ("tax_on_ebit", "capex", "change_in_nwc") else 1.0
+        frows.append([label] + [f"{v * sign:,.0f}" for v in f[key]])
+
+    ft = _table(frows, [width * 0.26] + [width * 0.148] * len(f))
+    ft.setStyle(TableStyle([
+        ("FONT", (0, len(frows) - 1), (-1, -1), "Helvetica-Bold", 7.6),
+        ("FONT", (0, 3), (-1, 3), "Helvetica-Bold", 7.6),
+        ("LINEABOVE", (0, len(frows) - 1), (-1, len(frows) - 1), 0.8, ACCENT),
+    ]))
+    flow.append(ft)
+    flow.append(Paragraph(
+        "Every figure is a cash impact, so a negative number is an outflow. Tax is charged on "
+        "unlevered EBIT and interest is absent: the financing effect belongs in the discount "
+        "rate, and counting it here as well would value the debt tax shield twice.", st["small"]))
+
+    if entry["notes"]:
+        flow.append(Spacer(1, 4))
+        flow.append(Paragraph("What to argue with", st["h2"]))
+        for n in entry["notes"]:
+            flow.append(Paragraph(f"&bull; {esc(n)}", st["body"]))
+
     if entry["quality"]["warnings"]:
         flow.append(Spacer(1, 4))
         flow.append(Paragraph("Data quality: " + "; ".join(entry["quality"]["warnings"]) + ".", st["small"]))
@@ -238,16 +280,23 @@ def build_pdf(results: dict, summary: pd.DataFrame, blocked: list, out: Path) ->
 
     flow.append(Paragraph("Institutional-Style Valuation Engine", st["title"]))
     flow.append(Paragraph(
-        f"Stage 1: forecast assumptions &bull; {len(results)} Nifty companies &bull; INR &bull; "
-        "sources: NSE filings, FRED, Nifty 50", st["subtitle"]))
+        f"Stages 1 and 2: assumptions, forecast and FCFF &bull; {len(results)} Nifty companies "
+        "&bull; INR &bull; sources: NSE filings, FRED, Nifty 50", st["subtitle"]))
 
     flow.append(Paragraph("What this document is, and what it is not", st["h1"]))
     flow.append(Paragraph(
-        "This is not a valuation. There is no fair value in it, because the discounting stages "
-        "are not built yet. It is the set of assumptions a discounted cash flow would stand on, "
-        "published on its own so that they can be argued with while they are still cheap to "
-        "change. Reviewing inputs after a share price exists is how a model gets talked into its "
-        "conclusion.", st["body"]))
+        "This is not a valuation. There is no fair value in it, because nothing has been "
+        "discounted: WACC is the next stage. What it contains is everything a discounted cash "
+        "flow stands on, published on its own so that it can be argued with while it is still "
+        "cheap to change. Reviewing inputs after a share price exists is how a model gets talked "
+        "into its conclusion.", st["body"]))
+    flow.append(Paragraph(
+        "Stage 1 derives the assumptions. Stage 2 turns them into a forecast income statement and "
+        "then into free cash flow to the firm, with every component of the build shown as its own "
+        "line. Tax is charged on unlevered EBIT and interest never appears, because the financing "
+        "effect belongs in the discount rate; putting it in the cash flow as well would value the "
+        "debt tax shield twice, which is the single most common way a DCF flatters itself.",
+        st["body"]))
     flow.append(Paragraph(
         "Every assumption here is produced by a stated rule applied to the company's own "
         "reported history, and each one carries the reasoning behind it and a confidence level. "
@@ -289,6 +338,19 @@ def build_pdf(results: dict, summary: pd.DataFrame, blocked: list, out: Path) ->
         "Growth is the first forecast year. Term g is the perpetuity rate. Confidence is the "
         "weakest link in each company's assumption set, not an average, because a forecast is "
         "only as strong as its softest driver.", st["small"]))
+
+    flow.append(PageBreak())
+    flow.append(Paragraph("Forecast free cash flow across the universe", st["h1"]))
+    crows = [["Company", "Sector", "FCFF yr 1", "FCFF terminal", "FCFF margin", "Reinvestment"]]
+    for _, r in summary.sort_values("fcff_margin", ascending=False).iterrows():
+        crows.append([r["ticker"], r["sector"], f"{r['fcff_y1']:,.0f}",
+                      f"{r['fcff_terminal']:,.0f}", pct(r["fcff_margin"]), pct(r["reinvestment"], 0)])
+    flow.append(_table(crows, [width * x for x in [0.15, 0.21, 0.17, 0.18, 0.15, 0.14]]))
+    flow.append(Paragraph(
+        "Reinvestment is capex plus the working capital movement as a share of NOPAT. Above 100% "
+        "the company is investing more than it earns after tax and is funding growth externally, "
+        "which is normal for cement, metals and utilities and would be a warning for IT services. "
+        "All figures are INR millions and none of them has been discounted yet.", st["small"]))
 
     if blocked:
         flow.append(Spacer(1, 8))
@@ -361,9 +423,9 @@ def main(project_root: Path) -> None:
     out_dir.mkdir(exist_ok=True)
 
     results, summary, blocked = analyse_universe(data_dir)
-    summary.to_csv(out_dir / "stage1_assumptions_all.csv", index=False)
+    summary.to_csv(out_dir / "stage1_2_drivers_all.csv", index=False)
 
-    pdf = out_dir / "valuation_stage1_report.pdf"
+    pdf = out_dir / "valuation_report.pdf"
     build_pdf(results, summary, blocked, pdf)
 
     print(f"Stage 1 across {len(results)} companies ({len(blocked)} excluded)\n")
@@ -371,4 +433,4 @@ def main(project_root: Path) -> None:
                    "ebitda_margin", "confidence"]].to_string(index=False))
     for ticker, name, reason in blocked:
         print(f"\nexcluded: {ticker} ({name}): {reason}")
-    print(f"\nWrote:\n  {pdf}\n  {out_dir/'stage1_assumptions_all.csv'}")
+    print(f"\nWrote:\n  {pdf}\n  {out_dir/'stage1_2_drivers_all.csv'}")
