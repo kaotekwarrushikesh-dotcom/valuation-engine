@@ -108,6 +108,7 @@ def derive(
     horizon: int = 5,
     overrides: dict[str, float] | None = None,
     nominal_gdp_growth: float = NOMINAL_GDP_GROWTH,
+    inflation: float = 0.02,
 ) -> ForecastAssumptions:
     """Build the assumption set from the company's own history.
 
@@ -185,9 +186,20 @@ def derive(
     #   terminal value, which is where most of the value sits.
     mature_signal = growth_trend.classification in ("decelerating", "contracting")
     gdp_ceiling = nominal_gdp_growth * (0.625 if mature_signal else 1.0)
-    terminal_basis = min(gdp_ceiling, start_growth)
+    unfloored = min(gdp_ceiling, start_growth)
+    terminal_basis = max(unfloored, inflation)
 
-    if terminal_basis == start_growth and start_growth < gdp_ceiling:
+    if terminal_basis > unfloored:
+        terminal_note = (
+            f"Floored at {inflation:.1%} inflation. Recent growth of {start_growth:.1%} would "
+            f"imply the company grows below inflation in perpetuity, which means shrinking in "
+            f"real terms forever and eventually to nothing. A few years of weak growth is "
+            "evidence about the cycle, not about the next century, and treating a cyclical "
+            "window as a structural rate is not conservatism but a different and much stronger "
+            "claim. The floor is what stops the terminal value being set by whichever part of "
+            "the cycle the last four years happened to fall in."
+        )
+    elif terminal_basis == start_growth and start_growth < gdp_ceiling:
         terminal_note = (
             f"Set to current growth of {start_growth:.1%}, below the {gdp_ceiling:.1%} GDP ceiling. "
             "The company is growing more slowly than the economy, and assuming it re-accelerates "

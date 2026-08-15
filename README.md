@@ -5,9 +5,12 @@
 Takes cleaned historical financials, builds defensible forecasts, and works through to a
 fair value per share. Built for **Nifty (NSE-listed) companies**, in INR.
 
-**Status: Stages 1 and 2 complete.** Assumptions, the forecast and FCFF are built and
-tested. Nothing is discounted yet, so there is no fair value: WACC is the next stage. This
-README says so rather than implying otherwise. See [Roadmap](#roadmap).
+**Status: Stages 1 to 4 built, and not yet calibrated.** Assumptions, forecast, FCFF, WACC
+and the DCF all run and are tested. They produce a fair value per share, but that number is
+systematically below the market for every company in the universe, so **the valuations are
+not published and should not be quoted**. What went wrong and what fixes it are written up
+in [Calibration](#calibration-the-model-reads-low-and-why) below, because a model that is
+wrong in a known direction is more useful than one that is quietly tuned until it agrees.
 
 ## Quick start
 
@@ -217,14 +220,47 @@ valuation_engine/
 | Index for beta | `^NSEI` | Nifty 50 |
 | Equity risk premium | Assumption, 7.5% | Named and overridable, not buried in the WACC |
 
+## Calibration: the model reads low, and why
+
+Running the DCF across the universe gives a fair value below the market price for **every
+one of the 32 companies**, from -8% to -121%. When a model disagrees with the market on
+every name in the same direction, the model is the problem.
+
+The reverse DCF is the instrument for pinning that down. It solves for the discount rate at
+which the model would agree with today's price, which turns a verdict into a question:
+
+| | Modelled WACC | Market-implied WACC | Gap |
+|---|---|---|---|
+| TCS | 14.24% | 11.86% | 2.38% |
+| Infosys | 12.90% | 11.06% | 1.85% |
+| Hindustan Unilever | 13.48% | 6.02% | 7.46% |
+| **Median across 32** | **~13.4%** | **9.28%** | **~4.0%** |
+
+A market-implied WACC of 9.28% against a 7.02% rupee risk-free implies an equity risk
+premium near 2.3%, which is not credible for India. So the gap is not simply that Indian
+large caps are expensive. Part of it is that the modelled cash flows are too low.
+
+**The known cause.** Stage 4 makes terminal reinvestment consistent with terminal growth,
+using `reinvestment rate = g / ROIC`. That correction is not applied to the explicit
+forecast years, which still hold capex at its historical share of revenue. For a company in
+an investment phase this charges five years of heavy capital spending while only crediting
+the faded growth rate: the same incoherence that was fixed in the terminal year is still
+present in years one to five. Reliance is the clearest case, reinvesting 145% of NOPAT
+through the forecast for 6.4% growth.
+
+**What was deliberately not done.** The equity risk premium was not lowered to close the
+gap. It was checked properly first: working the cost of equity through dollars instead
+(4.63% Treasury + 4.5% mature ERP + 3.0% country premium, plus the inflation differential)
+lands at 14.5%, the same as the rupee build, so 7.5% is defensible and is not double
+counting country risk. Tuning it anyway would have been fitting the assumptions to a wanted
+answer, which is the one thing this engine is built not to do.
+
 ## Roadmap
 
 Stages 1 and 2 are done. The remaining stages build on these cash flows:
 
-- **Stage 3** WACC: CAPM cost of equity, beta by regression against the Nifty 50, after-tax
-  cost of debt, market-value capital structure weights
-- **Stage 4** DCF: discounting, terminal value by both perpetual growth and exit multiple,
-  the enterprise-to-equity bridge, and a flag when terminal value dominates enterprise value
+- **Next** Link explicit-period reinvestment to growth, as the terminal year already does,
+  and re-check the model against the market before any valuation is published
 - **Stage 5** Comparable company analysis against the sector peer set
 - **Stage 6** Bull/base/bear scenarios and sensitivity tables
 - **Stage 7** Monte Carlo, driver attribution, and the final valuation summary

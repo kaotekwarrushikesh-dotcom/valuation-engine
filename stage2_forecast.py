@@ -51,7 +51,8 @@ def main() -> int:
     name = NIFTY_UNIVERSE.get(f"{ticker}.NS", (ticker, ""))[0]
     analysis = historical.analyse(hist)
     a = asmp.derive(hist, analysis, ticker, horizon=args.horizon,
-                    nominal_gdp_growth=market["nominal_gdp_growth"])
+                    nominal_gdp_growth=market["nominal_gdp_growth"],
+                    inflation=market.get("inflation", 0.02))
 
     fc = build_forecast(hist, a, ticker)
     result = build_fcff(fc)

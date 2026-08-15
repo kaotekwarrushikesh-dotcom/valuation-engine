@@ -30,6 +30,7 @@ US_MARKET = {
     "risk_free_series": "DGS10",
     "equity_risk_premium": DEFAULT_EQUITY_RISK_PREMIUM,
     "nominal_gdp_growth": 0.04,
+    "inflation": 0.02,
 }
 
 
@@ -138,7 +139,8 @@ def main() -> int:
 
     # --- Assumptions -----------------------------------------------------------------
     a = asmp.derive(hist, analysis, ticker, horizon=args.horizon,
-                    nominal_gdp_growth=market["nominal_gdp_growth"])
+                    nominal_gdp_growth=market["nominal_gdp_growth"],
+                    inflation=market.get("inflation", 0.02))
     section(f"5. FORECAST ASSUMPTIONS ({args.horizon} years, every one derived from the history above)")
 
     order = ["revenue_growth_start", "revenue_growth_path", "ebitda_margin", "da_pct_revenue",

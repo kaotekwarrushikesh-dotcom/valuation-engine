@@ -131,9 +131,28 @@ def test_terminal_growth_never_exceeds_current_growth():
     """A slow-growing company must not be assumed to re-accelerate into perpetuity, since
     that quietly moves value into the terminal period on no evidence."""
     h = make_history(years=8, growth=0.015)
-    a = asmp.derive(h, historical.analyse(h), "SLOW", nominal_gdp_growth=0.04)
+    a = asmp.derive(h, historical.analyse(h), "SLOW", nominal_gdp_growth=0.04, inflation=0.0)
     assert a.terminal_growth <= 0.015 + 1e-3
     assert a.revenue_growth_path == [pytest.approx(a.terminal_growth, abs=1e-3)] * a.horizon
+
+
+def test_terminal_growth_is_floored_at_inflation():
+    """The cap at current growth reads a short window as a perpetual rate. A few weak years
+    are evidence about the cycle, not about the next century, and letting them set terminal
+    growth below inflation claims the business shrinks in real terms forever, which is a
+    much stronger claim than the caution it looks like."""
+    h = make_history(years=8, growth=0.01)
+    a = asmp.derive(h, historical.analyse(h), "WEAK", nominal_gdp_growth=0.09, inflation=0.04)
+    assert a.terminal_growth == pytest.approx(0.04)
+    assert "inflation" in a.detail["terminal_growth"].rationale.lower()
+
+
+def test_inflation_floor_never_raises_growth_above_the_gdp_ceiling():
+    """The floor must not become a back door around the ceiling."""
+    h = make_history(years=8, growth=0.002)
+    a = asmp.derive(h, historical.analyse(h), "TINY", nominal_gdp_growth=0.03, inflation=0.06)
+    assert a.terminal_growth <= 0.06
+    assert a.terminal_growth >= 0.03
 
 
 def test_growth_path_fades_downward_and_lands_on_terminal():

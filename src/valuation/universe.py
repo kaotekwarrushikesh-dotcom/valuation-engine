@@ -72,6 +72,10 @@ INDIA_MARKET = {
     # Long-run nominal GDP growth for India, the ceiling on terminal growth. Higher than
     # the US ceiling because both real growth and target inflation are higher.
     "nominal_gdp_growth": 0.09,
+    # The RBI's inflation target, and the floor on terminal growth. A going concern growing
+    # below inflation forever is shrinking in real terms forever, which is a strong claim
+    # about a large listed franchise rather than a cautious default.
+    "inflation": 0.04,
 }
 
 
