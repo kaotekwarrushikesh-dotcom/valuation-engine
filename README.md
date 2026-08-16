@@ -5,12 +5,15 @@
 Takes cleaned historical financials, builds defensible forecasts, and works through to a
 fair value per share. Built for **Nifty (NSE-listed) companies**, in INR.
 
-**Status: Stages 1 to 4 built, and not yet calibrated.** Assumptions, forecast, FCFF, WACC
-and the DCF all run and are tested. They produce a fair value per share, but that number is
-systematically below the market for every company in the universe, so **the valuations are
-not published and should not be quoted**. What went wrong and what fixes it are written up
-in [Calibration](#calibration-the-model-reads-low-and-why) below, because a model that is
-wrong in a known direction is more useful than one that is quietly tuned until it agrees.
+**Status: Stages 1 to 5 built.** Assumptions, forecast, FCFF, WACC, the DCF and comparable
+company valuation all run and are tested. The DCF's fair value is systematically below the
+market for every company in the universe; comparables are not, and the gap between the two
+methods is itself the diagnosis, not a mystery. **The DCF valuations are not published or
+quoted on their own** until this is resolved with a richer terminal-value treatment. What is
+happening and the evidence for it are written up in
+[Calibration](#calibration-the-model-reads-low-and-why) below, because a model that is wrong
+in a known direction, with the evidence for why, is more useful than one quietly tuned until
+it agrees.
 
 ## Quick start
 
@@ -33,6 +36,18 @@ Run the stages for one company:
 
 ```bash
 .venv/bin/python stage2_forecast.py --ticker RELIANCE
+```
+
+```bash
+.venv/bin/python stage3_wacc.py --ticker RELIANCE
+```
+
+```bash
+.venv/bin/python stage4_dcf.py --ticker RELIANCE
+```
+
+```bash
+.venv/bin/python stage5_comparables.py --ticker RELIANCE
 ```
 
 Build the report (PDF plus a CSV of every driver):
@@ -93,6 +108,35 @@ the only defensible route.
 
 Every identity is re-derived independently in `validate_fcff` and the runner refuses to
 print results that fail. All 32 companies validate.
+
+## Stage 5: comparable company valuation
+
+Values a company off what the market currently pays for similar businesses, rather than off
+a forecast of its own cash flows. This shares almost no machinery with the DCF, which is why
+it works as a check on it: where the two agree the answer is more trustworthy, and where
+they disagree (see Calibration below) the disagreement is itself informative.
+
+**Peer selection is sector membership, fixed in `universe.py` independently of any single
+run**, so it cannot be adjusted per company to reach a wanted answer. A company with fewer
+than two usable peers is reported as unusable rather than valued off a group too thin to
+mean anything; 8 of the 32 companies fall into this category, mostly single-company sectors
+like Energy or Telecom in this universe.
+
+Four multiples, in two families that fail differently:
+
+| | Multiple | What it needs | Excluded when |
+|---|---|---|---|
+| Equity | P/E | positive earnings | earnings are negative: not a large P/E, an undefined one |
+| Equity | P/B | positive book equity | buybacks have pushed book equity negative |
+| Enterprise | EV/EBITDA | EBITDA above a small floor | EBITDA is negative or near zero, giving a nominal multiple that is not meaningful |
+| Enterprise | EV/Revenue | positive revenue | used as the multiple of last resort |
+
+The peer median (not the mean) is used, since financial multiples are heavy-tailed and a
+single company near break-even earnings can produce a P/E in the hundreds. Outliers, found
+by median absolute deviation (itself robust to the outlier it is meant to detect), are
+flagged for visibility rather than silently dropped from the statistic. The blended
+valuation weights enterprise multiples above equity ones, since EV/EBITDA and EV/Revenue are
+unaffected by the target's own leverage while P/E and P/B are not.
 
 ## How this connects to Module 1
 
@@ -184,6 +228,12 @@ not a peer group: IT Services (5), FMCG (5), Automobiles (5), Pharmaceuticals (4
 Metals (3), Cement (3), Energy (2), Utilities (2), Consumer Discretionary (2),
 Infrastructure (1), Telecom (1).
 
+Stage 5's comparable valuation needs at least two *other* companies in the sector to form a
+peer group, so a sector with only two members gives each company exactly one peer, below the
+minimum. 8 of the 33 companies (both Energy and Utilities names, both Consumer Discretionary
+names, and the single-member Infrastructure and Telecom sectors) are reported as unusable for
+comparables today rather than valued off a peer group too thin to mean anything.
+
 **Banks and NBFCs are deliberately excluded.** FCFF and enterprise value assume debt is
 financing. For a lender, borrowing is raw material, so EV/EBITDA and an unlevered DCF are
 not merely imprecise, they are the wrong instrument. Valuing them needs an excess-return or
@@ -202,12 +252,21 @@ valuation_engine/
 │   ├── assumptions.py          forecast assumptions with rationale
 │   ├── forecasting.py          revenue, EBITDA, D&A, EBIT projection
 │   ├── fcff.py                 FCFF build, review and validation
+│   ├── beta.py                 regression beta, Blume adjustment
+│   ├── wacc.py                 CAPM cost of equity, cost of debt, capital weights
+│   ├── terminal_value.py       perpetual growth, exit multiple, reinvestment consistency
+│   ├── dcf.py                  discounting, EV-to-equity bridge, reverse DCF
+│   ├── comparables.py          peer multiples, statistics, implied valuation
 │   ├── reporting.py            the PDF report
 │   └── market_data.py          prices, share counts, risk-free rate
 ├── tests/
 ├── outputs/
 ├── fetch_nifty.py
-└── stage1_historical.py
+├── stage1_historical.py
+├── stage2_forecast.py
+├── stage3_wacc.py
+├── stage4_dcf.py
+└── stage5_comparables.py
 ```
 
 ## Data sources
@@ -274,22 +333,38 @@ lands at 14.5%, matching the rupee build, so 7.5% is defensible on its own terms
 it anyway to shrink the gap would treat the symptom rather than the cause, and the cause is
 the terminal-value mechanism, not the discount rate.
 
-**What is still open.** Whether the fix is a richer terminal-value treatment (a multi-stage
-fade with an explicit high-growth, transition and mature phase rather than one perpetuity
-growth rate), sector-aware terminal multiples via comparables, or simply reporting the DCF
-fair value alongside a comparables-based one and letting the two disagree on the record,
-is the next real decision, not the closing of this section.
+**Confirmation from an independent method.** Stage 5 (comparable company valuation, below)
+prices each company off what the market currently pays for its sector peers rather than off
+a forecast of its own cash flows, so it shares almost none of the DCF's machinery and none
+of its terminal-value mechanism. Across the 25 companies with enough sector peers to value:
+
+| | DCF median upside | Comparables median upside |
+|---|---|---|
+| **Universe-wide** | **-72.6%** | **+2.9%** |
+| TCS | -27.8% | -9.8% |
+
+Comparables land close to fair value on the same underlying financial statements and market
+data the DCF uses. That rules out a data or arithmetic bug as the explanation, since a bug
+in the shared inputs would drag both methods off in the same direction, and confirms the
+terminal-value mechanism specifically as the source: comparables do not have one, and
+comparables do not show the gap.
+
+**What is still open.** The fix is a richer terminal-value treatment, most likely a
+multi-stage fade with an explicit high-growth, transition and mature phase rather than a
+single perpetuity growth rate, or leaning on the exit-multiple terminal value (already built
+in Stage 4) using sector multiples from Stage 5 rather than the perpetuity-growth method for
+the businesses where the gap is largest. Until one of those lands, the DCF and comparables
+outputs are best read side by side rather than the DCF being quoted alone.
 
 ## Roadmap
 
-Stages 1 to 4 run end to end and produce a fair value per share, with the calibration
-question above still open.
+Stages 1 to 5 run end to end. The DCF (Stage 4) and comparables (Stage 5) disagree by
+design at this point, per the Calibration section, and that disagreement is the current
+state of the module rather than a bug to hide before the remaining stages land.
 
-- **Stage 5** Comparable company analysis against the sector peer set, which is independent
-  of the terminal-growth mechanism and gives a second read that does not share the DCF's
-  failure mode
-- **Stage 6** Bull/base/bear scenarios and sensitivity tables
-- **Stage 7** Monte Carlo, driver attribution, and the final valuation summary
+- **Stage 6** Bull/base/bear scenarios and sensitivity tables around the DCF
+- **Stage 7** Monte Carlo, driver attribution, and a final summary that blends DCF and
+  comparables rather than picking one
 
 ## Known limitations
 
