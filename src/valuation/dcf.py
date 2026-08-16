@@ -67,10 +67,24 @@ class DCFResult:
     warnings: list[str] = field(default_factory=list)
 
     @property
+    def implied_share_price_floored(self) -> float:
+        """The implied price, floored at zero.
+
+        Equity cannot trade below zero under limited liability, so when net debt exceeds
+        enterprise value the honest arithmetic result is negative but the honest economic
+        reading is "the model considers the equity worthless on these assumptions," not a
+        literal negative price. The raw, unfloored value stays on `implied_share_price` for
+        anyone who wants to see how far underwater the business is; this is what should be
+        shown as a price and used to compute downside, since an investor's loss is capped at
+        the amount invested.
+        """
+        return max(self.implied_share_price, 0.0)
+
+    @property
     def upside(self) -> float:
         if self.current_share_price <= 0:
             return float("nan")
-        return self.implied_share_price / self.current_share_price - 1.0
+        return self.implied_share_price_floored / self.current_share_price - 1.0
 
     @property
     def terminal_share(self) -> float:

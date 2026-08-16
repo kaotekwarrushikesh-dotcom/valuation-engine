@@ -5,12 +5,13 @@
 Takes cleaned historical financials, builds defensible forecasts, and works through to a
 fair value per share. Built for **Nifty (NSE-listed) companies**, in INR.
 
-**Status: Stages 1 to 5 built.** Assumptions, forecast, FCFF, WACC, the DCF and comparable
-company valuation all run and are tested. The DCF's fair value is systematically below the
-market for every company in the universe; comparables are not, and the gap between the two
-methods is itself the diagnosis, not a mystery. **The DCF valuations are not published or
-quoted on their own** until this is resolved with a richer terminal-value treatment. What is
-happening and the evidence for it are written up in
+**Status: Stages 1 to 6 built.** Assumptions, forecast, FCFF, WACC, the DCF, comparable
+company valuation, and bull/base/bear scenarios with sensitivity tables all run and are
+tested. The DCF's fair value is systematically below the market for every company in the
+universe; comparables are not, and the gap between the two methods is itself the diagnosis,
+not a mystery, so every scenario built on the DCF inherits it. **The DCF valuations are not
+published or quoted on their own** until this is resolved with a richer terminal-value
+treatment. What is happening and the evidence for it are written up in
 [Calibration](#calibration-the-model-reads-low-and-why) below, because a model that is wrong
 in a known direction, with the evidence for why, is more useful than one quietly tuned until
 it agrees.
@@ -48,6 +49,10 @@ Run the stages for one company:
 
 ```bash
 .venv/bin/python stage5_comparables.py --ticker RELIANCE
+```
+
+```bash
+.venv/bin/python stage6_scenarios.py --ticker RELIANCE
 ```
 
 Build the report (PDF plus a CSV of every driver):
@@ -137,6 +142,48 @@ by median absolute deviation (itself robust to the outlier it is meant to detect
 flagged for visibility rather than silently dropped from the statistic. The blended
 valuation weights enterprise multiples above equity ones, since EV/EBITDA and EV/Revenue are
 unaffected by the target's own leverage while P/E and P/B are not.
+
+## Stage 6: scenarios and sensitivity
+
+**Bull, base and bear are each a complete, independently computed valuation**, not a
+percentage haircut applied to the base case afterward. A flat -20% implies every driver
+moves by the same amount in the same direction, which is not what a downside case looks
+like: margins compress, growth slows, capital gets more expensive and the terminal outlook
+dims, and those effects compound through the model rather than adding linearly. Each
+scenario re-runs the forecast, FCFF and DCF from a shifted assumption set, using the
+override mechanism `assumptions.derive` already has, so bear, base and bull can never
+silently agree on a driver they were supposed to disagree on.
+
+The shifts are fixed, stated constants (bear: growth -4pts, margin -2pts, capex +15%,
+terminal growth -1pt, WACC +150bps; bull the mirror image), not fit to produce a target
+spread. A scenario spread that looks dramatic is usually a sign the shifts were chosen for
+effect rather than derived from a plausible case.
+
+**Two sensitivity grids, built differently because they test different things.** WACC and
+terminal growth sit together in the terminal-value formula and only affect the terminal
+value and discounting, not the explicit-period cash flows, so one forecast is built once and
+reused across the whole grid. Revenue growth and EBITDA margin drive the explicit-period cash
+flows themselves, so every cell in that grid rebuilds the full forecast from scratch; it is
+the more expensive table and is kept smaller as a result.
+
+**Driver sensitivity** bumps each assumption by one point in its favourable direction,
+holding everything else fixed, and ranks the resulting price change. This answers "what is
+the valuation most sensitive to" directly rather than by inspection: for TCS, a one-point
+move in WACC or revenue growth changes the valuation roughly three times more than the same
+move in capex intensity.
+
+**Negative equity value is floored at zero for display, never reported as a negative
+price.** A heavily levered or structurally declining company can genuinely produce a DCF
+where net debt exceeds enterprise value, and that is a real, reportable finding: the model
+is saying the business does not cover its debt on these assumptions. But equity cannot trade
+below zero under limited liability, so the raw negative arithmetic is kept internally
+(`implied_share_price`) for anyone measuring how far underwater the business is, while the
+displayed price and computed upside use the floored value
+(`implied_share_price_floored`), capping downside at -100% rather than reporting something
+past it that no investor could actually experience. The sensitivity grids are the one
+exception: they show the raw, unfloored numbers on purpose, since a grid exists to reveal
+the shape and magnitude of a sensitivity, and flattening a whole stressed region to zero
+would hide exactly what the table is for.
 
 ## How this connects to Module 1
 
@@ -257,6 +304,8 @@ valuation_engine/
 │   ├── terminal_value.py       perpetual growth, exit multiple, reinvestment consistency
 │   ├── dcf.py                  discounting, EV-to-equity bridge, reverse DCF
 │   ├── comparables.py          peer multiples, statistics, implied valuation
+│   ├── scenarios.py            bull/base/bear, each independently computed
+│   ├── sensitivity.py          WACC/growth grids, growth/margin grid, driver ranking
 │   ├── reporting.py            the PDF report
 │   └── market_data.py          prices, share counts, risk-free rate
 ├── tests/
@@ -266,7 +315,8 @@ valuation_engine/
 ├── stage2_forecast.py
 ├── stage3_wacc.py
 ├── stage4_dcf.py
-└── stage5_comparables.py
+├── stage5_comparables.py
+└── stage6_scenarios.py
 ```
 
 ## Data sources
@@ -358,13 +408,14 @@ outputs are best read side by side rather than the DCF being quoted alone.
 
 ## Roadmap
 
-Stages 1 to 5 run end to end. The DCF (Stage 4) and comparables (Stage 5) disagree by
+Stages 1 to 6 run end to end. The DCF (Stage 4) and comparables (Stage 5) disagree by
 design at this point, per the Calibration section, and that disagreement is the current
-state of the module rather than a bug to hide before the remaining stages land.
+state of the module rather than a bug hidden before Stage 6 landed; every scenario and
+sensitivity table in Stage 6 inherits it, since they are all built on the same terminal-value
+mechanism as the base-case DCF.
 
-- **Stage 6** Bull/base/bear scenarios and sensitivity tables around the DCF
-- **Stage 7** Monte Carlo, driver attribution, and a final summary that blends DCF and
-  comparables rather than picking one
+- **Stage 7** Monte Carlo (the scenario drivers as distributions rather than fixed points)
+  and a final summary that blends DCF and comparables rather than picking one
 
 ## Known limitations
 

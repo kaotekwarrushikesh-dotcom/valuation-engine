@@ -136,7 +136,11 @@ def main() -> int:
     print(f"\n  Net debt is total debt less cash, taken from FY{int(hist.fiscal_year.iloc[-1])}.")
 
     section("4. VALUATION")
-    print(f"  Implied share price   {cur} {result.implied_share_price:,.2f}")
+    print(f"  Implied share price   {cur} {result.implied_share_price_floored:,.2f}")
+    if result.implied_share_price < 0:
+        print(f"  (raw arithmetic result was {cur} {result.implied_share_price:,.2f}; equity")
+        print("   cannot trade below zero, so this reads as worthless on these assumptions,")
+        print("   not literally negative, since net debt exceeds enterprise value)")
     print(f"  Current share price   {cur} {result.current_share_price:,.2f}   (as at {snap.as_of})")
     print(f"  Upside / downside     {result.upside:+.1%}")
     print(f"\n  Equity value          {cur} {result.equity_value/1e6:,.2f} tn")
