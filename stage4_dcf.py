@@ -16,7 +16,6 @@ from src.valuation import historical
 from src.valuation.beta import estimate_beta
 from src.valuation.data_bridge import DataQualityError, data_quality_report, load_history
 from src.valuation.dcf import cross_checks, reverse_dcf, run_dcf
-from src.valuation.terminal_value import estimate_roic
 from src.valuation.fcff import build_fcff
 from src.valuation.forecasting import build_forecast
 from src.valuation.market_data import fetch_price_history, fetch_snapshot, risk_free_rate
@@ -81,7 +80,7 @@ def main() -> int:
         return 1
 
     net_debt = float(hist["net_debt"].iloc[-1])
-    roic = estimate_roic(hist, a.tax_rate)
+    roic = a.terminal_roic
     shares = snap.shares_outstanding / 1e6  # millions, to match the cash flows
 
     try:

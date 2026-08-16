@@ -213,7 +213,8 @@ def company_section(ticker: str, entry: dict, st: dict, width: float) -> list:
     # Assumptions with reasoning
     flow.append(Paragraph("Forecast assumptions and why", st["h2"]))
     order = ["revenue_growth_start", "revenue_growth_path", "ebitda_margin", "da_pct_revenue",
-             "capex_pct_revenue", "nwc_pct_revenue", "tax_rate", "terminal_growth"]
+             "tax_rate", "capex_pct_revenue", "capex_pct_revenue_path", "nwc_pct_revenue",
+             "terminal_growth"]
     for name in order:
         item = a.detail.get(name)
         if not item:

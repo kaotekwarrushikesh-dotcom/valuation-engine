@@ -144,7 +144,8 @@ def main() -> int:
     section(f"5. FORECAST ASSUMPTIONS ({args.horizon} years, every one derived from the history above)")
 
     order = ["revenue_growth_start", "revenue_growth_path", "ebitda_margin", "da_pct_revenue",
-             "capex_pct_revenue", "nwc_pct_revenue", "tax_rate", "terminal_growth"]
+             "tax_rate", "capex_pct_revenue", "capex_pct_revenue_path", "nwc_pct_revenue",
+             "terminal_growth"]
     for name in order:
         if name in a.detail:
             print(f"\n  {a.detail[name]}")

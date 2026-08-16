@@ -126,14 +126,17 @@ def forecast_vs_history(hist: pd.DataFrame, fc: Forecast) -> list[str]:
         )
 
     # D&A well below capex means the asset base is being built faster than it is written
-    # off, which is normal while investing but cannot continue forever.
+    # off, which is normal while investing but cannot continue forever. Capex intensity
+    # already fades toward a terminal-consistent level (see assumptions.py), so this checks
+    # what is left over after that fade rather than the flat historical ratio.
     da = float(fc.frame["dep_amort"].iloc[-1])
-    capex = float(fc.frame["revenue"].iloc[-1] * fc.assumptions.capex_pct_revenue)
+    capex = float(fc.frame["revenue"].iloc[-1] * fc.assumptions.capex_pct_revenue_path[-1])
     if capex > da * 1.5:
         notes.append(
-            f"Terminal capex ({capex:,.0f}) runs {capex/da:.1f}x terminal D&A ({da:,.0f}). "
-            "In perpetuity the two should converge, so terminal value from this base will "
-            "overstate the reinvestment the company can sustain."
+            f"Terminal capex ({capex:,.0f}) still runs {capex/da:.1f}x terminal D&A "
+            f"({da:,.0f}) even after fading toward the ROIC-consistent level. In perpetuity "
+            "the two should converge, so terminal value from this base may still overstate "
+            "the reinvestment the company can sustain."
         )
 
     return notes

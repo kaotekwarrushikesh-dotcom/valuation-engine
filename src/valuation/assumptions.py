@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from src.valuation.terminal_value import estimate_roic, terminal_consistent_capex_ratio
+
 # Long-run nominal GDP growth: roughly 2% real plus a 2% inflation target. This is the
 # ceiling on any terminal growth rate, not a forecast of it.
 NOMINAL_GDP_GROWTH = 0.04
@@ -60,11 +62,22 @@ class ForecastAssumptions:
     revenue_growth_path: list[float]
     ebitda_margin_path: list[float]
     da_pct_revenue: float
-    capex_pct_revenue: float
+    capex_pct_revenue_path: list[float]
     nwc_pct_revenue: float
     tax_rate: float
     terminal_growth: float
+    terminal_roic: float
     detail: dict[str, Assumption] = field(default_factory=dict)
+
+    @property
+    def capex_pct_revenue(self) -> float:
+        """The starting-year capex intensity, for callers that want one number.
+
+        The forecast itself uses the full path, which fades toward the terminal-consistent
+        level; this is the level history actually supports, kept for anything that reports
+        a single figure (a summary table, an override default) rather than the trajectory.
+        """
+        return self.capex_pct_revenue_path[0]
 
     def as_frame(self, last_actual_year: int) -> pd.DataFrame:
         years = [last_actual_year + i + 1 for i in range(self.horizon)]
@@ -74,7 +87,7 @@ class ForecastAssumptions:
                 "revenue_growth": self.revenue_growth_path,
                 "ebitda_margin": self.ebitda_margin_path,
                 "da_pct_revenue": self.da_pct_revenue,
-                "capex_pct_revenue": self.capex_pct_revenue,
+                "capex_pct_revenue": self.capex_pct_revenue_path,
                 "nwc_pct_revenue": self.nwc_pct_revenue,
                 "tax_rate": self.tax_rate,
             }
@@ -260,6 +273,22 @@ def derive(
                            "high" if margin_trend.classification == "stable" else "medium")
     margin_path = [ebitda_margin] * horizon
 
+    # --- Tax -------------------------------------------------------------------------
+    # Computed before capex because the reinvestment-consistency check below needs it to
+    # estimate return on invested capital.
+    median_tax = levels["effective_tax_rate_median"]
+    tax_floor, tax_cap = 0.10, 0.35
+    tax_rate = record(
+        "tax_rate", round(_clamp(median_tax, tax_floor, tax_cap), 4),
+        (
+            f"Median effective tax rate of {median_tax:.1%}, bounded to "
+            f"[{tax_floor:.0%}, {tax_cap:.0%}]. The effective rate is used because it is what the "
+            "company actually pays. The floor exists because temporary credits and one-off "
+            "settlements should not be projected into perpetuity."
+        ),
+        "high" if tax_floor <= median_tax <= tax_cap else "low",
+    )
+
     # --- Capital and working capital intensity ---------------------------------------
     # Medians, not means: one acquisition-heavy or one deferred-spending year should not
     # set the run rate for five forecast years.
@@ -274,7 +303,7 @@ def derive(
     )
 
     capex_trend = analysis["trends"]["capex_pct_revenue"]
-    capex_pct = record(
+    capex_start = record(
         "capex_pct_revenue", round(levels["capex_pct_revenue_median"], 4),
         (
             f"Median capex of {levels['capex_pct_revenue_median']:.1%} of revenue, where capital "
@@ -283,6 +312,35 @@ def derive(
         ),
         "medium" if capex_trend.classification == "stable" else "low",
     )
+
+    # Capex fades toward a terminal-consistent level, the same way revenue growth fades
+    # toward terminal growth. Holding capex flat at its historical share of revenue while
+    # growth fades down underneath it charges the company for reinvestment it is never
+    # credited with in the explicit years, not only in the terminal year: it is the same
+    # incoherence the terminal-year normalisation exists to fix, just left in the five years
+    # in front of it. Reliance is the clear case: its forecast reinvested 145% of NOPAT for
+    # 6.4% growth every explicit year, a gap the terminal fix alone did not touch.
+    terminal_roic = estimate_roic(hist, tax_rate)
+    capex_terminal, capex_path_note = terminal_consistent_capex_ratio(
+        ebitda_margin=ebitda_margin, da_pct_revenue=da_pct,
+        nwc_pct_revenue=float(hist["nwc_pct_revenue"].tail(3).mean()),
+        tax_rate=tax_rate, growth=terminal_growth, roic=terminal_roic,
+    )
+
+    if np.isnan(capex_terminal):
+        capex_path = [capex_start] * horizon
+        detail["capex_pct_revenue_path"] = Assumption(
+            "capex_pct_revenue_path", capex_start, capex_path_note, "derived",
+            "low",
+        )
+    else:
+        capex_path = [round(x, 5) for x in fade_path(capex_start, capex_terminal, horizon)]
+        path_str = ", ".join(f"{x:.1%}" for x in capex_path)
+        detail["capex_pct_revenue_path"] = Assumption(
+            "capex_pct_revenue_path", capex_start,
+            f"{capex_path_note} Path: {path_str}.",
+            "derived", "medium" if capex_trend.classification == "stable" else "low",
+        )
 
     # Working capital is the one ratio that must anchor on the recent level rather than the
     # full-period median. The forecast bridges from the last actual NWC balance, so the
@@ -314,31 +372,16 @@ def derive(
         "medium" if drift <= 0.02 else "low",
     )
 
-    # --- Tax -------------------------------------------------------------------------
-    # The effective rate actually paid, not the statutory rate, floored so that a company
-    # with unusual credits does not get a permanently free ride in perpetuity.
-    median_tax = levels["effective_tax_rate_median"]
-    tax_floor, tax_cap = 0.10, 0.35
-    tax_rate = record(
-        "tax_rate", round(_clamp(median_tax, tax_floor, tax_cap), 4),
-        (
-            f"Median effective tax rate of {median_tax:.1%}, bounded to "
-            f"[{tax_floor:.0%}, {tax_cap:.0%}]. The effective rate is used because it is what the "
-            "company actually pays. The floor exists because temporary credits and one-off "
-            "settlements should not be projected into perpetuity."
-        ),
-        "high" if tax_floor <= median_tax <= tax_cap else "low",
-    )
-
     return ForecastAssumptions(
         ticker=ticker,
         horizon=horizon,
         revenue_growth_path=growth_path,
         ebitda_margin_path=margin_path,
         da_pct_revenue=da_pct,
-        capex_pct_revenue=capex_pct,
+        capex_pct_revenue_path=capex_path,
         nwc_pct_revenue=nwc_pct,
         tax_rate=tax_rate,
         terminal_growth=terminal_growth,
+        terminal_roic=terminal_roic,
         detail=detail,
     )

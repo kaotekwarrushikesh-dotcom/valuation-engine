@@ -39,6 +39,7 @@ consumes cash, and the model should show that rather than smooth it away.
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from src.valuation.forecasting import Forecast
@@ -79,8 +80,11 @@ def build_fcff(fc: Forecast) -> FCFFResult:
     f["tax_on_ebit"] = f["ebit"] * a.tax_rate
     f["nopat"] = f["ebit"] - f["tax_on_ebit"]
 
-    f["capex"] = f["revenue"] * a.capex_pct_revenue
-    f["capex_pct_revenue"] = a.capex_pct_revenue
+    # Capex intensity is a path, faded toward its terminal-consistent level, not a single
+    # ratio held flat across every forecast year.
+    capex_path = np.asarray(a.capex_pct_revenue_path)
+    f["capex"] = f["revenue"].to_numpy() * capex_path
+    f["capex_pct_revenue"] = capex_path
 
     # Working capital scales with revenue at the assumed intensity, so the cash effect is
     # that intensity applied to the revenue added in the year.

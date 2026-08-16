@@ -254,3 +254,80 @@ def test_currency_scaling_leaves_ratios_untouched():
     assert a2.revenue_growth_path == pytest.approx(a1.revenue_growth_path)
     assert a2.ebitda_margin_path == pytest.approx(a1.ebitda_margin_path)
     assert a2.capex_pct_revenue == pytest.approx(a1.capex_pct_revenue)
+
+
+# --- Capex fade toward terminal-consistent reinvestment --------------------------------
+
+def test_capex_fades_toward_terminal_consistent_level():
+    """Holding capex flat at its historical share of revenue while growth fades down
+    underneath it charges the company for reinvestment it is never credited with in the
+    explicit years, not only the terminal one."""
+    hist = make_history(years=8, growth=0.25, ebitda_margin=0.30)
+    a = asmp.derive(hist, historical.analyse(hist), "FADE")
+    path = a.capex_pct_revenue_path
+    assert len(path) == a.horizon
+    assert path[0] == pytest.approx(a.detail["capex_pct_revenue"].value, abs=1e-4)
+    # A growth-fading company reinvesting heavily should see capex intensity move, not
+    # stay pinned at the historical level for all five years.
+    assert path[-1] != pytest.approx(path[0], abs=1e-4)
+
+
+def test_capex_path_feeds_the_fcff_build_not_a_flat_ratio():
+    """fcff.py must use the per-year path, not the starting-year scalar, or the fade is
+    computed but silently discarded."""
+    hist = make_history(years=8, growth=0.20)
+    a = asmp.derive(hist, historical.analyse(hist), "USEPATH")
+    fc = build_forecast(hist, a, "USEPATH")
+    r = build_fcff(fc)
+    implied_ratios = (r.frame["capex"] / r.frame["revenue"]).tolist()
+    assert implied_ratios == pytest.approx(a.capex_pct_revenue_path, abs=1e-6)
+    # If the fade were being discarded, every year would equal the starting ratio.
+    assert len(set(round(x, 6) for x in implied_ratios)) > 1
+
+
+def test_capex_pct_revenue_property_returns_the_starting_value():
+    """Callers that want a single number (a summary table) get the level history actually
+    supports, not an average across the fade or the terminal figure."""
+    hist = make_history(years=8)
+    a = asmp.derive(hist, historical.analyse(hist), "SCALAR")
+    assert a.capex_pct_revenue == pytest.approx(a.capex_pct_revenue_path[0])
+
+
+def test_terminal_roic_is_a_single_source_used_everywhere():
+    """WACC-independent, computed once inside derive() from history and tax rate alone, so
+    Stage 4 and the capex fade cannot silently disagree about what ROIC is."""
+    hist = make_history(years=8)
+    a = asmp.derive(hist, historical.analyse(hist), "ONESOURCE")
+    from src.valuation.terminal_value import estimate_roic
+    assert a.terminal_roic == pytest.approx(estimate_roic(hist, a.tax_rate))
+
+
+def test_terminal_consistent_capex_ratio_matches_the_reinvestment_identity():
+    from src.valuation.terminal_value import terminal_consistent_capex_ratio
+    ebitda_margin, da_pct, nwc_pct, tax_rate, growth, roic = 0.25, 0.05, 0.02, 0.25, 0.06, 0.15
+    ratio, _ = terminal_consistent_capex_ratio(ebitda_margin, da_pct, nwc_pct, tax_rate, growth, roic)
+
+    ebit_margin = ebitda_margin - da_pct
+    nopat_margin = ebit_margin * (1 - tax_rate)
+    reinvestment_rate = growth / roic
+    expected = da_pct + reinvestment_rate * nopat_margin - nwc_pct * growth
+    assert ratio == pytest.approx(expected, abs=1e-9)
+
+
+def test_terminal_consistent_capex_ratio_never_goes_negative():
+    from src.valuation.terminal_value import terminal_consistent_capex_ratio
+    # Deliberately extreme: very low D&A, very low growth, so the naive formula would go
+    # negative. Negative capex is not a real thing a company can do.
+    ratio, _ = terminal_consistent_capex_ratio(
+        ebitda_margin=0.10, da_pct_revenue=0.01, nwc_pct_revenue=0.30,
+        tax_rate=0.25, growth=0.01, roic=0.30,
+    )
+    assert ratio >= 0.0
+
+
+def test_reinvestment_rate_for_growth_caps_when_roic_at_or_below_growth():
+    from src.valuation.terminal_value import reinvestment_rate_for_growth
+    rate, effective_growth = reinvestment_rate_for_growth(growth=0.08, roic=0.06)
+    assert effective_growth < 0.08
+    assert effective_growth == pytest.approx(0.05)
+    assert 0 <= rate <= 1

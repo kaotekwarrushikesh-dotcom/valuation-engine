@@ -223,45 +223,71 @@ valuation_engine/
 ## Calibration: the model reads low, and why
 
 Running the DCF across the universe gives a fair value below the market price for **every
-one of the 32 companies**, from -8% to -121%. When a model disagrees with the market on
-every name in the same direction, the model is the problem.
+one of the 32 companies**. When a model disagrees with the market on every name in the same
+direction, that is worth pinning down rather than publishing anyway, so the valuations are
+not surfaced on the portfolio dashboard until this section is resolved or the finding is
+confirmed and stated as a finding rather than a defect.
 
-The reverse DCF is the instrument for pinning that down. It solves for the discount rate at
-which the model would agree with today's price, which turns a verdict into a question:
+The reverse DCF is the instrument for pinning it down: it solves for the discount rate at
+which the model would agree with today's price, which turns a verdict into a question.
 
-| | Modelled WACC | Market-implied WACC | Gap |
-|---|---|---|---|
-| TCS | 14.24% | 11.86% | 2.38% |
-| Infosys | 12.90% | 11.06% | 1.85% |
-| Hindustan Unilever | 13.48% | 6.02% | 7.46% |
-| **Median across 32** | **~13.4%** | **9.28%** | **~4.0%** |
+| | Modelled WACC | Market-implied WACC | Gap | Terminal growth | Capex intensity |
+|---|---|---|---|---|---|
+| TCS | 14.24% | 11.78% | 2.46% | 5.8% | 1.5% to 3.2%, low throughout |
+| Infosys | 12.90% | 10.88% | 2.02% | 3.4% | low throughout |
+| Reliance | 13.01% | 8.47% | 4.54% | 6.4% | 15.3% fading to 12.6% |
+| Hindustan Unilever | 13.48% | 6.00% | 7.48% | 4.0% (inflation floor) | minimal |
+| **Median across 32** | **~13.4%** | **~9.3%** | **~4.0%** | | |
 
-A market-implied WACC of 9.28% against a 7.02% rupee risk-free implies an equity risk
-premium near 2.3%, which is not credible for India. So the gap is not simply that Indian
-large caps are expensive. Part of it is that the modelled cash flows are too low.
+**First correction, real and confirmed.** Terminal reinvestment was made consistent with
+terminal growth (`reinvestment rate = g / ROIC`), but that correction was applied only to
+the terminal year. The explicit forecast years still held capex at its historical share of
+revenue while growth faded down underneath it, which is the same incoherence in miniature,
+repeated for five years. Capex intensity is now faded toward the terminal-consistent level
+across the explicit horizon too, the same way revenue growth already fades toward terminal
+growth. This is a real fix: it moved Reliance's implied share price from an unusable 22
+rupees to 323, and the reinvestment identity behind it is tested directly.
 
-**The known cause.** Stage 4 makes terminal reinvestment consistent with terminal growth,
-using `reinvestment rate = g / ROIC`. That correction is not applied to the explicit
-forecast years, which still hold capex at its historical share of revenue. For a company in
-an investment phase this charges five years of heavy capital spending while only crediting
-the faded growth rate: the same incoherence that was fixed in the terminal year is still
-present in years one to five. Reliance is the clearest case, reinvesting 145% of NOPAT
-through the forecast for 6.4% growth.
+**That fix did not close the gap, and the evidence says why.** After the correction, the
+median WACC gap moved from 3.99% to 4.00%, essentially unchanged. TCS and Infosys, whose
+capex is close to nothing in either version of the model, still show a two-point gap.
+Hindustan Unilever, a fully domestic, low-capex, high-margin compounder, shows the *largest*
+gap in the universe at 7.48 points, an implied discount rate of 6.00% against a 7.02%
+risk-free rate, meaning the market prices it almost like a bond. Capex was never the driver
+for either of these; both were already asset-light before the fix.
 
-**What was deliberately not done.** The equity risk premium was not lowered to close the
-gap. It was checked properly first: working the cost of equity through dollars instead
+The pattern across the table is the actual explanation: **the gap is largest for the
+highest-quality, lowest-growth, most richly-rated compounders, and smallest for the more
+cyclical, higher-growth or higher-capex names.** That is the textbook, well-documented
+failure mode of a Gordon-growth terminal value fed a conservative, GDP-and-inflation-capped
+growth rate: the market pays a premium for stability, quality, and optionality beyond the
+forecast horizon that a mechanical perpetuity formula does not capture, and it pays that
+premium precisely for the businesses that most resemble annuities. This is not a coding
+defect, and treating it as one by lowering the equity risk premium until the numbers agree
+would be curve-fitting the assumption to a wanted answer, which is the one thing this engine
+is built not to do.
+
+**What was checked and deliberately left alone.** The equity risk premium was checked
+before being ruled out as the culprit: working the cost of equity through dollars instead
 (4.63% Treasury + 4.5% mature ERP + 3.0% country premium, plus the inflation differential)
-lands at 14.5%, the same as the rupee build, so 7.5% is defensible and is not double
-counting country risk. Tuning it anyway would have been fitting the assumptions to a wanted
-answer, which is the one thing this engine is built not to do.
+lands at 14.5%, matching the rupee build, so 7.5% is defensible on its own terms. Lowering
+it anyway to shrink the gap would treat the symptom rather than the cause, and the cause is
+the terminal-value mechanism, not the discount rate.
+
+**What is still open.** Whether the fix is a richer terminal-value treatment (a multi-stage
+fade with an explicit high-growth, transition and mature phase rather than one perpetuity
+growth rate), sector-aware terminal multiples via comparables, or simply reporting the DCF
+fair value alongside a comparables-based one and letting the two disagree on the record,
+is the next real decision, not the closing of this section.
 
 ## Roadmap
 
-Stages 1 and 2 are done. The remaining stages build on these cash flows:
+Stages 1 to 4 run end to end and produce a fair value per share, with the calibration
+question above still open.
 
-- **Next** Link explicit-period reinvestment to growth, as the terminal year already does,
-  and re-check the model against the market before any valuation is published
-- **Stage 5** Comparable company analysis against the sector peer set
+- **Stage 5** Comparable company analysis against the sector peer set, which is independent
+  of the terminal-growth mechanism and gives a second read that does not share the DCF's
+  failure mode
 - **Stage 6** Bull/base/bear scenarios and sensitivity tables
 - **Stage 7** Monte Carlo, driver attribution, and the final valuation summary
 

@@ -108,34 +108,28 @@ def normalise_terminal_cash_flow(
             "terminal value unadjusted. Where capex exceeds D&A that understates value.",
         )
 
-    if roic <= growth:
-        # Growing faster than the return on capital consumes cash without limit, so the
-        # growth assumption is the thing that has to give.
-        capped = max(roic - 0.01, 0.0)
-        rate = capped / roic if roic > 0 else 1.0
-        normalised = terminal_nopat * (1.0 - rate)
-        return TerminalCashFlow(
-            terminal_fcff, normalised, terminal_nopat, roic, rate,
-            f"Terminal growth of {growth:.1%} is at or above the {roic:.1%} return on "
-            f"invested capital, which cannot be sustained: growth funded at a return below "
-            f"its cost destroys value. Growth is capped at {capped:.1%} for the terminal "
-            "calculation.",
-        )
-
-    rate = growth / roic
+    rate, effective_growth = reinvestment_rate_for_growth(growth, roic)
     normalised = terminal_nopat * (1.0 - rate)
 
-    note = (
-        f"Terminal reinvestment set to {rate:.0%} of NOPAT, the amount needed to sustain "
-        f"{growth:.1%} growth at a {roic:.1%} return on invested capital. The forecast year "
-        f"reinvests a different amount, which is right while the company is building but "
-        f"incoherent in perpetuity."
-    )
-    if roic < wacc:
-        note += (
-            f" Note that ROIC of {roic:.1%} is below the {wacc:.1%} cost of capital, so on "
-            "these numbers growth destroys value rather than creating it."
+    if effective_growth < growth:
+        note = (
+            f"Terminal growth of {growth:.1%} is at or above the {roic:.1%} return on "
+            f"invested capital, which cannot be sustained: growth funded at a return below "
+            f"its cost destroys value. Growth is capped at {effective_growth:.1%} for the "
+            "terminal calculation."
         )
+    else:
+        note = (
+            f"Terminal reinvestment set to {rate:.0%} of NOPAT, the amount needed to sustain "
+            f"{growth:.1%} growth at a {roic:.1%} return on invested capital. The forecast year "
+            f"reinvests a different amount, which is right while the company is building but "
+            f"incoherent in perpetuity."
+        )
+        if roic < wacc:
+            note += (
+                f" Note that ROIC of {roic:.1%} is below the {wacc:.1%} cost of capital, so on "
+                "these numbers growth destroys value rather than creating it."
+            )
 
     return TerminalCashFlow(terminal_fcff, normalised, terminal_nopat, roic, rate, note)
 
@@ -217,3 +211,78 @@ def implied_growth(terminal_value: float, terminal_fcff: float, wacc: float) -> 
         return float("nan")
     # TV = FCFF(1+g)/(WACC-g)  =>  g = (TV x WACC - FCFF) / (TV + FCFF)
     return (terminal_value * wacc - terminal_fcff) / (terminal_value + terminal_fcff)
+
+
+def reinvestment_rate_for_growth(growth: float, roic: float) -> tuple[float, float]:
+    """The share of NOPAT that must be reinvested to sustain `growth` at `roic`.
+
+        growth = reinvestment rate x ROIC   so   reinvestment rate = growth / ROIC
+
+    Returns (reinvestment_rate, effective_growth). Where growth is at or above ROIC, the
+    rate is uncomputable in the usual sense: growing faster than the return on capital
+    consumes cash without limit, since a return below the discount rate destroys value by
+    growing. Growth is capped just under ROIC for this purpose, and the capped figure is
+    returned alongside so a caller can be honest about which growth rate the reinvestment
+    figure actually corresponds to.
+    """
+    if np.isnan(roic) or roic <= 0:
+        return float("nan"), growth
+    if roic <= growth:
+        capped = max(roic - 0.01, 0.0)
+        rate = capped / roic if roic > 0 else 1.0
+        return rate, capped
+    return growth / roic, growth
+
+
+def terminal_consistent_capex_ratio(
+    ebitda_margin: float,
+    da_pct_revenue: float,
+    nwc_pct_revenue: float,
+    tax_rate: float,
+    growth: float,
+    roic: float,
+) -> tuple[float, str]:
+    """The capex/revenue ratio consistent with sustaining `growth` at `roic`, in the terminal year.
+
+    A forecast that holds capex at its historical share of revenue while growth fades down
+    to a much lower terminal rate is charging the company for reinvestment it is never
+    credited with: the same incoherence the terminal-year FCFF normalisation exists to fix,
+    but present in every explicit forecast year rather than only the last one. This derives
+    the capex ratio the terminal year needs, so that ratio can be faded toward from the
+    historical starting point the same way revenue growth fades toward terminal growth,
+    rather than holding capex flat while growth glides down underneath it.
+
+    Net reinvestment (capex less D&A, plus the change in working capital) must equal the
+    reinvestment rate times NOPAT. Expressed per unit of revenue:
+
+        capex% = D&A% + (reinvestment rate x NOPAT%) - (NWC% x growth)
+
+    The working capital term uses the growth rate because the change in working capital in
+    this model is the revenue increment times the NWC ratio, so its size as a share of
+    revenue scales with growth, not with the ratio alone.
+    """
+    if np.isnan(roic) or roic <= 0:
+        return float("nan"), (
+            "Return on invested capital could not be estimated, so capex is held at its "
+            "historical share of revenue for the full forecast rather than faded toward a "
+            "terminal-consistent level."
+        )
+
+    reinvestment_rate, effective_growth = reinvestment_rate_for_growth(growth, roic)
+    ebit_margin = ebitda_margin - da_pct_revenue
+    nopat_margin = ebit_margin * (1.0 - tax_rate)
+
+    target_reinvestment_margin = reinvestment_rate * nopat_margin
+    dnwc_margin = nwc_pct_revenue * effective_growth
+
+    capex_ratio = max(da_pct_revenue + target_reinvestment_margin - dnwc_margin, 0.0)
+
+    note = (
+        f"Terminal-consistent capex of {capex_ratio:.1%} of revenue: the level that reinvests "
+        f"{reinvestment_rate:.0%} of NOPAT, the share needed to sustain {effective_growth:.1%} "
+        f"growth at a {roic:.1%} return on invested capital. Capex fades from its historical "
+        "share of revenue toward this figure over the forecast, in step with revenue growth "
+        "fading toward its terminal rate, rather than staying at an investment-phase level "
+        "while the growth it was funding tails off underneath it."
+    )
+    return capex_ratio, note
