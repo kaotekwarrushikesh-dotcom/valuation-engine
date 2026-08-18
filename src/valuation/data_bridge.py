@@ -72,6 +72,22 @@ def load_history(ticker: str, data_dir: Path | None = None) -> pd.DataFrame:
     return derive_valuation_inputs(df)
 
 
+def load_history_from_frame(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """The same validation and derivation as `load_history`, for an in-memory frame.
+
+    Used by the live, any-company path, where the statements come from a fetch made this
+    request rather than a Module 1 CSV already on disk. The contract is identical either
+    way: whatever supplies the frame must produce Module 1's schema, and this function does
+    not know or care whether that was a file read or a live API call.
+    """
+    missing = set(REQUIRED) - set(df.columns)
+    if missing:
+        raise DataQualityError(f"{ticker}: fetched data is missing columns {sorted(missing)}")
+
+    df = df.sort_values("fiscal_year").reset_index(drop=True)
+    return derive_valuation_inputs(df)
+
+
 def derive_valuation_inputs(df: pd.DataFrame) -> pd.DataFrame:
     """Add the derived quantities a DCF consumes. Pure restatement of history."""
     d = df.copy()

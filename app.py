@@ -27,18 +27,24 @@ from src.valuation.comparables import (
     compute_multiples,
     run_comparables,
 )
-from src.valuation.data_bridge import DataQualityError, data_quality_report, load_history
+from src.valuation.data_bridge import (
+    DataQualityError,
+    data_quality_report,
+    load_history,
+    load_history_from_frame,
+)
 from src.valuation.dcf import cross_checks, reverse_dcf, run_dcf
 from src.valuation.fcff import build_fcff
 from src.valuation.forecasting import build_forecast
 from src.valuation.market_data import fetch_price_history, fetch_snapshot, risk_free_rate
+from src.valuation.global_data import fetch as fetch_global
+from src.valuation.global_search import search as search_global
 from src.valuation.scenarios import run_all_scenarios
-from src.valuation.universe import INDIA_MARKET, NIFTY_UNIVERSE, peers_for
+from src.valuation.universe import INDIA_MARKET, NIFTY_UNIVERSE, peers_for, resolve_market_for_currency
 from src.valuation.wacc import build_wacc, validate_wacc
 
 st.set_page_config(page_title="Institutional-Style Valuation Engine", page_icon="📐", layout="wide")
 
-CUR = INDIA_MARKET["currency"]
 NIFTY_DATA = Path(__file__).parent / "data" / "nifty"
 
 
@@ -90,6 +96,7 @@ def run_pipeline(full_ticker: str, horizon: int = 5):
     fc = build_forecast(hist, a, ticker)
     fcff = build_fcff(fc)
 
+    cur = INDIA_MARKET["currency"]
     rf, rf_date = risk_free_rate(series=INDIA_MARKET["risk_free_series"])
     snap = fetch_snapshot(full_ticker)
     beta = estimate_beta(
@@ -111,7 +118,7 @@ def run_pipeline(full_ticker: str, horizon: int = 5):
             dcf_result = run_dcf(
                 ticker=ticker, fcff=fcff, wacc=wacc_result.wacc, terminal_growth=a.terminal_growth,
                 net_debt=net_debt, shares_outstanding=shares, current_share_price=snap.share_price,
-                currency=CUR, roic=roic,
+                currency=cur, roic=roic,
             )
             dcf_checks = cross_checks(dcf_result, float(fcff.frame["ebitda"].iloc[-1]))
         except ValueError as exc:
@@ -133,13 +140,16 @@ def run_pipeline(full_ticker: str, horizon: int = 5):
     if not wacc_errors:
         scenarios = run_all_scenarios(
             hist, analysis, ticker, a, wacc_result.wacc, net_debt, shares, snap.share_price,
-            CUR, INDIA_MARKET["nominal_gdp_growth"], INDIA_MARKET["inflation"], horizon,
+            cur, INDIA_MARKET["nominal_gdp_growth"], INDIA_MARKET["inflation"], horizon,
         )
 
     return {
+        "mode": "curated", "currency": cur,
+        "risk_free_series": INDIA_MARKET["risk_free_series"], "index_name": INDIA_MARKET["index_name"],
         "ticker": ticker, "name": name, "sector": sector, "hist": hist, "quality": quality,
+        "share_price": snap.share_price, "market_cap": snap.market_cap,
         "analysis": analysis, "assumptions": a, "forecast": fc, "fcff": fcff,
-        "rf": rf, "rf_date": rf_date, "snapshot": snap, "beta": beta,
+        "rf": rf, "rf_date": rf_date, "beta": beta,
         "wacc": wacc_result, "wacc_errors": wacc_errors,
         "dcf": dcf_result, "dcf_error": dcf_error, "dcf_checks": dcf_checks,
         "implied_wacc": implied_wacc, "net_debt": net_debt,
@@ -148,31 +158,150 @@ def run_pipeline(full_ticker: str, horizon: int = 5):
     }
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def run_quick_pipeline(query: str, horizon: int = 5):
+    """Stages 1, 2, 3, 4 and 6 for any company, fetched live. No comparables: real sector
+    peers only exist for the curated universe (see universe.py), and an auto-discovered
+    peer group would be lower quality without saying so, which defeats the point of having
+    comparables as a cross-check in the first place."""
+    matches = search_global(query, limit=1)
+    if not matches:
+        raise ValueError(f"No listed company found for '{query}'")
+    ticker = matches[0].ticker
+
+    company = fetch_global(ticker)
+    hist = load_history_from_frame(company.frame, ticker)
+    quality = data_quality_report(hist, ticker)
+    if quality["blocking"]:
+        raise ValueError("; ".join(quality["blocking"]))
+
+    market, calibrated = resolve_market_for_currency(company.currency)
+    cur = company.currency
+
+    analysis = historical.analyse(hist)
+    a = asmp.derive(hist, analysis, ticker, horizon=horizon,
+                    nominal_gdp_growth=market["nominal_gdp_growth"], inflation=market["inflation"])
+    fc = build_forecast(hist, a, ticker)
+    fcff = build_fcff(fc)
+
+    rf, rf_date = risk_free_rate(series=market["risk_free_series"])
+    beta = estimate_beta(
+        fetch_price_history(ticker, years=5),
+        fetch_price_history(market["index_ticker"], years=5),
+        market["index_name"],
+    )
+    wacc_result = build_wacc(ticker, hist, beta, company.market_cap / 1e6, rf,
+                             market["equity_risk_premium"], a.tax_rate)
+    wacc_errors = validate_wacc(wacc_result, a.terminal_growth)
+
+    net_debt = float(hist["net_debt"].iloc[-1])
+    shares = company.shares_outstanding / 1e6
+    roic = a.terminal_roic
+
+    dcf_result, dcf_error, dcf_checks = None, None, []
+    if not wacc_errors:
+        try:
+            dcf_result = run_dcf(
+                ticker=ticker, fcff=fcff, wacc=wacc_result.wacc, terminal_growth=a.terminal_growth,
+                net_debt=net_debt, shares_outstanding=shares, current_share_price=company.share_price,
+                currency=cur, roic=roic,
+            )
+            dcf_checks = cross_checks(dcf_result, float(fcff.frame["ebitda"].iloc[-1]))
+        except ValueError as exc:
+            dcf_error = str(exc)
+
+    implied_wacc = None
+    if dcf_result is not None:
+        implied_wacc = reverse_dcf(fcff, company.market_cap / 1e6, net_debt, a.terminal_growth, roic)
+
+    scenarios = None
+    if not wacc_errors:
+        scenarios = run_all_scenarios(
+            hist, analysis, ticker, a, wacc_result.wacc, net_debt, shares, company.share_price,
+            cur, market["nominal_gdp_growth"], market["inflation"], horizon,
+        )
+
+    return {
+        "mode": "quick", "currency": cur, "market_calibrated": calibrated,
+        "risk_free_series": market["risk_free_series"], "index_name": market["index_name"],
+        "ticker": ticker, "name": company.name, "sector": None, "hist": hist, "quality": quality,
+        "share_price": company.share_price, "market_cap": company.market_cap,
+        "fetch_notes": company.notes,
+        "analysis": analysis, "assumptions": a, "forecast": fc, "fcff": fcff,
+        "rf": rf, "rf_date": rf_date, "beta": beta,
+        "wacc": wacc_result, "wacc_errors": wacc_errors,
+        "dcf": dcf_result, "dcf_error": dcf_error, "dcf_checks": dcf_checks,
+        "implied_wacc": implied_wacc, "net_debt": net_debt,
+        "target_multiples": None, "peers": [], "comparables": None,
+        "scenarios": scenarios,
+    }
+
+
 # --- Layout --------------------------------------------------------------------------------
 
 st.title("Institutional-Style Valuation Engine")
 st.caption(
-    "Historical assumptions → forecast → FCFF → WACC → DCF → comparable-company multiples, "
-    "for Nifty (NSE) companies. Built progressively, stage by stage, with every assumption "
-    "shown alongside its reasoning."
+    "Historical assumptions → forecast → FCFF → WACC → DCF, with comparable-company "
+    "multiples and full sector context for a curated Nifty universe, or a quick DCF for "
+    "any listed company. Built progressively, stage by stage, with every assumption shown "
+    "alongside its reasoning."
 )
 
-labels = {f"{name} ({t.replace('.NS','')})": t for t, (name, sec) in sorted(NIFTY_UNIVERSE.items())}
-choice = st.selectbox("Company", list(labels.keys()), index=list(labels.keys()).index(
-    next(k for k, v in labels.items() if v == "RELIANCE.NS")))
-full_ticker = labels[choice]
+mode = st.radio(
+    "Mode", ["Curated Nifty universe (full workflow)", "Quick DCF (any company)"],
+    horizontal=True, label_visibility="collapsed",
+)
 
-with st.spinner(f"Running the valuation pipeline for {full_ticker.replace('.NS','')}..."):
-    try:
-        r = run_pipeline(full_ticker)
-    except Exception as exc:  # noqa: BLE001 - surface the reason, not a stack trace
-        st.error(f"Could not value this company: {exc}")
+if mode.startswith("Curated"):
+    labels = {f"{name} ({t.replace('.NS','')})": t for t, (name, sec) in sorted(NIFTY_UNIVERSE.items())}
+    choice = st.selectbox("Company", list(labels.keys()), index=list(labels.keys()).index(
+        next(k for k, v in labels.items() if v == "RELIANCE.NS")))
+    full_ticker = labels[choice]
+
+    with st.spinner(f"Running the valuation pipeline for {full_ticker.replace('.NS','')}..."):
+        try:
+            r = run_pipeline(full_ticker)
+        except Exception as exc:  # noqa: BLE001 - surface the reason, not a stack trace
+            st.error(f"Could not value this company: {exc}")
+            st.stop()
+else:
+    st.info(
+        "**Quick DCF**: any listed company, fetched live. There is no comparable-company "
+        "cross-check here, only for the curated universe on the other tab, because real "
+        "sector peers do not exist for an arbitrary company the way they do for the "
+        "hand-picked 33 (see the README's Calibration section for why that peer set "
+        "matters). Market assumptions (risk-free rate, equity risk premium, terminal "
+        "growth ceiling) are only calibrated for USD and INR companies; anything else uses "
+        "a disclosed generic fallback, which is a real simplification, not a footnote."
+    )
+    query = st.text_input("Company name or ticker", placeholder="Apple, ASML, SAP, Shell, Nestle")
+    if not query:
         st.stop()
+    with st.spinner(f"Fetching and valuing '{query}'..."):
+        try:
+            r = run_quick_pipeline(query)
+        except Exception as exc:  # noqa: BLE001 - surface the reason, not a stack trace
+            st.error(f"Could not value this company: {exc}")
+            st.stop()
 
-st.markdown(f"### {r['name']}  ·  `{r['ticker']}`  ·  {r['sector']}")
+    if not r["market_calibrated"]:
+        st.warning(
+            f"**{r['currency']} is not a calibrated market in this engine.** The risk-free "
+            f"rate, equity risk premium and terminal-growth ceiling use a generic "
+            f"developed-market fallback rather than {r['currency']}-specific data, which "
+            "misprices the discount rate by roughly the currency's own rate differential "
+            "against the US. Treat this DCF as indicative only, more so than the "
+            "already-documented DCF limitations that apply everywhere in this engine."
+        )
+    for note in r.get("fetch_notes", []):
+        st.caption(f"ℹ️ {note}")
+
+cur = r["currency"]
+sector_label = f"  ·  {r['sector']}" if r["sector"] else ""
+st.markdown(f"### {r['name']}  ·  `{r['ticker']}`{sector_label}")
 top = st.columns(5)
-top[0].metric("Current price", f"{CUR} {r['snapshot'].share_price:,.2f}")
-top[1].metric("Market cap", f"{CUR} {r['snapshot'].market_cap/1e12:,.2f} tn")
+top[0].metric("Current price", f"{cur} {r['share_price']:,.2f}")
+top[1].metric("Market cap", f"{cur} {r['market_cap']/1e12:,.2f} tn")
 top[2].metric("History", f"{r['quality']['years']} years")
 top[3].metric("WACC", pct(r["wacc"].wacc))
 top[4].metric("Beta (adj.)", f"{r['beta'].adjusted:.2f}")
@@ -210,7 +339,7 @@ with tabs[0]:
             st.error("WACC failed validation; no DCF produced. " + "; ".join(r["wacc_errors"]))
         else:
             d = r["dcf"]
-            st.metric("Implied share price", f"{CUR} {d.implied_share_price_floored:,.2f}",
+            st.metric("Implied share price", f"{cur} {d.implied_share_price_floored:,.2f}",
                      f"{d.upside:+.1%} vs current")
             st.caption(f"Terminal value is {d.terminal_share:.0%} of enterprise value  ·  "
                       f"terminal growth {d.terminal_growth:.2%}  ·  WACC {d.wacc:.2%}")
@@ -225,7 +354,15 @@ with tabs[0]:
 
     with right:
         st.subheader("Comparable companies")
-        if r["comparables"] is None:
+        if r["mode"] == "quick":
+            st.info(
+                "Not available in Quick DCF mode. Real sector peers only exist for the "
+                "curated Nifty universe; an auto-discovered peer group for an arbitrary "
+                "company would be lower quality without saying so, which defeats the point "
+                "of comparables as a cross-check. Switch to the curated universe tab for a "
+                "company with a real comparable valuation."
+            )
+        elif r["comparables"] is None:
             st.info(
                 f"Fewer than {MIN_PEERS} usable sector peers for {r['sector']} in this "
                 "universe, so no comparable valuation is produced rather than one built off "
@@ -233,7 +370,7 @@ with tabs[0]:
             )
         else:
             c = r["comparables"]
-            st.metric("Blended comparable value", f"{CUR} {c.blended_share_price:,.2f}",
+            st.metric("Blended comparable value", f"{cur} {c.blended_share_price:,.2f}",
                      f"{c.upside:+.1%} vs current")
             st.caption("Weighted across: " + ", ".join(MULTIPLE_LABELS[m] for m in c.blended_multiples_used))
             rows = []
@@ -251,7 +388,7 @@ with tabs[0]:
         cols = st.columns(3)
         for col, key, label in zip(cols, ["bear", "base", "bull"], ["Bear", "Base", "Bull"]):
             price = s[key].dcf.implied_share_price_floored
-            col.metric(label, f"{CUR} {price:,.2f}", f"{s[key].dcf.upside:+.1%}")
+            col.metric(label, f"{cur} {price:,.2f}", f"{s[key].dcf.upside:+.1%}")
 
 # --- Tab 2: Historical & assumptions ----------------------------------------------------------
 with tabs[1]:
@@ -313,7 +450,7 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("Cost of capital")
     st.dataframe(r["wacc"].component_table(), hide_index=True, use_container_width=True)
-    st.caption(f"Risk-free from FRED {INDIA_MARKET['risk_free_series']} as at {r['rf_date']}. "
+    st.caption(f"Risk-free from FRED {r['risk_free_series']} as at {r['rf_date']}. "
               "Equity at market value, debt at book: book equity is an accounting residual "
               "that can be negative after buybacks, which would make the weights meaningless.")
     for n in r["wacc"].notes:
@@ -328,7 +465,7 @@ with tabs[3]:
     bc2.metric("Adjusted (Blume)", f"{b.adjusted:.3f}")
     bc3.metric("R-squared", f"{b.r_squared:.2f}")
     bc4.metric("Confidence", b.confidence)
-    st.caption(f"Regression of monthly returns against {INDIA_MARKET['index_name']}, "
+    st.caption(f"Regression of monthly returns against {r['index_name']}, "
               f"{b.observations} observations.")
     for w in b.warnings:
         st.caption(f"⚠️ {w}")
@@ -350,7 +487,7 @@ with tabs[4]:
             c1.metric("Revenue growth (yr 1)", pct(sc.assumptions.revenue_growth_path[0]))
             c2.metric("EBITDA margin", pct(sc.assumptions.ebitda_margin_path[0]))
             c3.metric("WACC", pct(sc.wacc))
-            c4.metric("Implied price", f"{CUR} {sc.dcf.implied_share_price_floored:,.2f}",
+            c4.metric("Implied price", f"{cur} {sc.dcf.implied_share_price_floored:,.2f}",
                      f"{sc.dcf.upside:+.1%}")
             if sc.dcf.equity_value <= 0:
                 st.caption("Equity value is not positive on these assumptions: net debt "

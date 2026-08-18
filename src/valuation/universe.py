@@ -85,3 +85,56 @@ def peers_for(ticker: str) -> list[str]:
         return []
     sector = NIFTY_UNIVERSE[ticker][1]
     return [t for t, (_, s) in NIFTY_UNIVERSE.items() if s == sector and t != ticker]
+
+
+# --- Market profiles for the Quick DCF path (any company, any currency) ----------------
+#
+# WACC needs country-specific inputs: a risk-free rate in the cash flow's own currency, an
+# equity risk premium, and a terminal-growth ceiling tied to that economy's nominal GDP. The
+# curated universe only ever needed India's numbers. A company fetched through the Quick DCF
+# path can be in any currency, and building a calibrated profile for every currency on earth
+# is not attempted here: two markets are calibrated (the ones with real usage in this
+# platform), and everything else gets a stated, disclosed generic fallback rather than a
+# silently wrong number dressed up as a real one.
+
+US_MARKET = {
+    "currency": "USD",
+    "index_ticker": "^GSPC",
+    "index_name": "S&P 500",
+    "risk_free_series": "DGS10",
+    "equity_risk_premium": 0.045,
+    "nominal_gdp_growth": 0.04,
+    "inflation": 0.02,
+}
+
+# Not tied to any government bond series: this fallback has no calibrated risk-free rate,
+# so it takes the US Treasury as a dollar proxy and states plainly that it is one. A company
+# in euros or yen priced with a dollar risk-free rate has a real error in it, on the order
+# of the two currencies' rate differential, which is disclosed rather than hidden.
+GENERIC_MARKET = {
+    "currency": None,  # filled in with the company's own currency at resolution time
+    "index_ticker": "^GSPC",
+    "index_name": "S&P 500 (proxy: no calibrated local index)",
+    "risk_free_series": "DGS10",
+    "equity_risk_premium": 0.055,  # mature-market ERP plus a margin for the uncalibrated case
+    "nominal_gdp_growth": 0.035,
+    "inflation": 0.025,
+    "is_generic": True,
+}
+
+
+def resolve_market_for_currency(currency: str) -> tuple[dict, bool]:
+    """The market profile for a currency, and whether it is genuinely calibrated.
+
+    Returns (profile, is_calibrated). A caller must check the second value and disclose it
+    when False, since a generic profile is a real, quantifiable simplification, not a minor
+    footnote: using a dollar risk-free rate for a euro cash flow misprices the currency
+    differential, typically a percentage point or more, directly into the discount rate.
+    """
+    if currency == "INR":
+        return INDIA_MARKET, True
+    if currency == "USD":
+        return US_MARKET, True
+    profile = dict(GENERIC_MARKET)
+    profile["currency"] = currency
+    return profile, False
