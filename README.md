@@ -29,7 +29,19 @@ Download the universe (33 Nifty companies):
 .venv/bin/python fetch_nifty.py
 ```
 
-Run the stages for one company:
+Run the interactive app (Stages 1 to 6, live, any company in the universe):
+
+```bash
+.venv/bin/streamlit run app.py
+```
+
+The app deliberately never shows the DCF's implied price without comparables next to it, per
+the Calibration section: across this universe the DCF's terminal-value method reads
+systematically below market for high-quality, low-growth compounders, and comparables do not
+share that failure mode, so pairing them is what stops one model's opinion from being read as
+a verdict.
+
+Run the stages for one company from the terminal instead:
 
 ```bash
 .venv/bin/python stage1_historical.py --ticker RELIANCE

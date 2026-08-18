@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "valuation-app",
+      "runtimeExecutable": "/Users/rushikeshkaotekwar/valuation_engine/.venv/bin/streamlit",
+      "runtimeArgs": [
+        "run",
+        "/Users/rushikeshkaotekwar/valuation_engine/app.py",
+        "--server.port", "8503",
+        "--server.headless", "true",
+        "--browser.gatherUsageStats", "false"
+      ],
+      "port": 8503
+    }
+  ]
+}
