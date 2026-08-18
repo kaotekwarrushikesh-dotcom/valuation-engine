@@ -3,15 +3,17 @@
 > Estimating intrinsic value using DCF, market multiples and scenario-based valuation analysis.
 
 Takes cleaned historical financials, builds defensible forecasts, and works through to a
-fair value per share. Built for **Nifty (NSE-listed) companies**, in INR.
+fair value per share. Built for **Nifty (NSE-listed) companies**, in INR, with a second
+**Quick DCF** mode for any listed company worldwide (see
+[Quick DCF: any company](#quick-dcf-any-company)).
 
-**Status: Stages 1 to 6 built.** Assumptions, forecast, FCFF, WACC, the DCF, comparable
-company valuation, and bull/base/bear scenarios with sensitivity tables all run and are
-tested. The DCF's fair value is systematically below the market for every company in the
-universe; comparables are not, and the gap between the two methods is itself the diagnosis,
-not a mystery, so every scenario built on the DCF inherits it. **The DCF valuations are not
-published or quoted on their own** until this is resolved with a richer terminal-value
-treatment. What is happening and the evidence for it are written up in
+**Status: Stages 1 to 6 built, plus Quick DCF.** Assumptions, forecast, FCFF, WACC, the DCF,
+comparable company valuation, and bull/base/bear scenarios with sensitivity tables all run and
+are tested for the curated universe. The DCF's fair value is systematically below the market
+for every company in the universe; comparables are not, and the gap between the two methods is
+itself the diagnosis, not a mystery, so every scenario built on the DCF inherits it. **The DCF
+valuations are not published or quoted on their own** until this is resolved with a richer
+terminal-value treatment. What is happening and the evidence for it are written up in
 [Calibration](#calibration-the-model-reads-low-and-why) below, because a model that is wrong
 in a known direction, with the evidence for why, is more useful than one quietly tuned until
 it agrees.
@@ -29,17 +31,24 @@ Download the universe (33 Nifty companies):
 .venv/bin/python fetch_nifty.py
 ```
 
-Run the interactive app (Stages 1 to 6, live, any company in the universe):
+Run the interactive app:
 
 ```bash
 .venv/bin/streamlit run app.py
 ```
 
-The app deliberately never shows the DCF's implied price without comparables next to it, per
-the Calibration section: across this universe the DCF's terminal-value method reads
-systematically below market for high-quality, low-growth compounders, and comparables do not
-share that failure mode, so pairing them is what stops one model's opinion from being read as
-a verdict.
+The app has two modes. **Curated Nifty universe** runs the full workflow (Stages 1 to 6) for
+the 33 hand-picked companies, DCF paired with comparables. **Quick DCF** takes any listed
+company by name or ticker, fetched live via Yahoo Finance, anywhere in the world, and runs
+DCF plus scenarios without comparables, since real sector peers only exist for the curated
+universe (see [Quick DCF: any company](#quick-dcf-any-company) below).
+
+The app deliberately never shows the DCF's implied price without comparables next to it in
+curated mode, per the Calibration section: across this universe the DCF's terminal-value
+method reads systematically below market for high-quality, low-growth compounders, and
+comparables do not share that failure mode, so pairing them is what stops one model's opinion
+from being read as a verdict. Quick DCF mode has no comparables to pair with, so it says so
+explicitly instead of silently omitting the caveat.
 
 Run the stages for one company from the terminal instead:
 
@@ -298,6 +307,28 @@ financing. For a lender, borrowing is raw material, so EV/EBITDA and an unlevere
 not merely imprecise, they are the wrong instrument. Valuing them needs an excess-return or
 FCFE model, which is a separate build rather than a looser version of this one.
 
+## Quick DCF: any company
+
+The curated universe exists because comparable-company valuation needs real sector peers, and
+a hand-picked list is what made Stage 5 trustworthy enough to diagnose the Calibration finding
+in the first place (see above). Auto-discovering peers for an arbitrary company would be lower
+quality without saying so, which defeats the point of comparables as a cross-check, so Quick
+DCF does not attempt it: a company entered here gets a DCF and scenarios, not comparables.
+
+Everything else runs live instead of from `data/nifty/`: statements, price and share count are
+fetched from Yahoo Finance for whatever ticker is resolved from the typed name, through
+`src/valuation/global_data.py` and `global_search.py`. These are self-contained ports of
+Module 1's currency-handling logic (minor-unit quotes such as GBp, statement-vs-quote currency
+mismatches such as Infosys reporting in USD while quoting in INR) rather than a shared import,
+because the deployed app is its own standalone repository and cannot reach into a sibling
+repo's files at runtime.
+
+Market assumptions (risk-free rate, equity risk premium, terminal-growth ceiling) are only
+calibrated for USD and INR, the two markets this engine has actually tuned. Any other resolved
+currency gets a disclosed generic developed-market fallback rather than a silently wrong
+number, shown as a warning in the app rather than a footnote, since a fallback the user cannot
+see is worse than no fallback at all.
+
 ## Structure
 
 ```text
@@ -305,7 +336,9 @@ valuation_engine/
 ├── data/nifty/                 one cleaned CSV per company, Module 1 schema
 ├── src/valuation/
 │   ├── nse_data.py             NSE loader into Module 1's schema
-│   ├── universe.py             companies, sectors, India market parameters
+│   ├── global_data.py          live fetch + currency handling for any company (Quick DCF)
+│   ├── global_search.py        name/ticker resolution for Quick DCF
+│   ├── universe.py             companies, sectors, market parameters (India, US, generic)
 │   ├── data_bridge.py          statements to valuation inputs, quality gate
 │   ├── historical.py           trend classification and interpretation
 │   ├── assumptions.py          forecast assumptions with rationale
@@ -455,3 +488,7 @@ mechanism as the base-case DCF.
    left alone, because converting on a guess is a silent hundredfold error.
 8. **No accounting-quality checks.** One-off items, restatements and segment changes are
    not detected. The engine trusts the filed numbers.
+9. **Quick DCF has no comparables and, outside USD/INR, no calibrated market assumptions.**
+   Both are disclosed in the app rather than hidden, but a Quick DCF result for a company in
+   an uncalibrated currency is indicative only, more so than the limitations above that apply
+   everywhere in this engine.
