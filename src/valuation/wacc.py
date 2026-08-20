@@ -26,6 +26,20 @@ struck on unlevered EBIT precisely so that it is not counted twice.
 **WACC must exceed terminal growth.** A perpetuity with g >= WACC divides by zero or by a
 negative number and produces either infinity or a negative value that looks like a real
 answer. This is checked and blocks the valuation rather than being quietly clamped.
+
+**Country risk is counted once, not twice.** CAPM wants a genuinely risk-free rate, and a
+government bond in a currency whose sovereign can default is not one: India's rupee 10-year
+yields more than a Treasury partly because of expected inflation and partly because lenders
+price the chance of not being repaid. A total equity risk premium for an emerging market
+(a mature-market premium plus a country premium) is built to sit on top of a *default-free*
+rate. Pairing it with the raw sovereign yield charges the same country risk twice, once in
+the bond and once in the premium, which inflated this engine's cost of equity by roughly
+200bp across the Indian universe before it was found. The default spread is therefore
+stripped from the risk-free rate before CAPM sees it.
+
+The cost of *debt* is the opposite case and deliberately keeps the raw yield: a company
+borrows in the real market, at a spread over the actual government bond its lenders can buy
+instead, so the sovereign risk in that yield is a cost it genuinely bears.
 """
 
 from dataclasses import dataclass, field
@@ -55,6 +69,8 @@ class WACCResult:
 
     ticker: str
     risk_free: float
+    sovereign_default_spread: float
+    equity_risk_free: float
     equity_risk_premium: float
     beta_used: float
     cost_of_equity: float
@@ -74,9 +90,18 @@ class WACCResult:
         """The build, line by line, so any input can be challenged on its own."""
         rows = [
             ("Risk-free rate", f"{self.risk_free:.2%}", "10Y government bond"),
-            ("Equity risk premium", f"{self.equity_risk_premium:.2%}", "assumption, includes country risk"),
+        ]
+        if self.sovereign_default_spread > 0:
+            rows += [
+                ("Less: sovereign default spread", f"-{self.sovereign_default_spread:.2%}",
+                 "the bond is not default-free; the ERP already charges for that risk"),
+                ("Default-free rate for CAPM", f"{self.equity_risk_free:.2%}",
+                 "what the cost of equity is built on"),
+            ]
+        rows += [
+            ("Equity risk premium", f"{self.equity_risk_premium:.2%}", "assumption, mature market plus country risk"),
             ("Beta (adjusted)", f"{self.beta_used:.2f}", "regression vs index, Blume adjusted"),
-            ("Cost of equity", f"{self.cost_of_equity:.2%}", "risk-free + beta x ERP"),
+            ("Cost of equity", f"{self.cost_of_equity:.2%}", "default-free rate + beta x ERP"),
             ("Pre-tax cost of debt", f"{self.pre_tax_cost_of_debt:.2%}", "interest / average debt"),
             ("Tax rate", f"{self.tax_rate:.2%}", "effective rate"),
             ("After-tax cost of debt", f"{self.after_tax_cost_of_debt:.2%}", "Kd x (1 - t)"),
@@ -148,8 +173,16 @@ def build_wacc(
     equity_risk_premium: float,
     tax_rate: float,
     peer_beta: float | None = None,
+    sovereign_default_spread: float = 0.0,
 ) -> WACCResult:
-    """Assemble WACC from its components."""
+    """Assemble WACC from its components.
+
+    `risk_free` is the government bond yield as quoted. `sovereign_default_spread` is the
+    part of that yield which compensates for the sovereign's own default risk, and is
+    removed before CAPM because the equity risk premium already charges for country risk;
+    see the module docstring. It is zero for a benchmark sovereign such as the US Treasury,
+    where the quoted yield is the default-free rate.
+    """
     notes: list[str] = []
     warnings: list[str] = list(beta.warnings)
 
@@ -173,7 +206,17 @@ def build_wacc(
             "That is worth explaining rather than accepting."
         )
 
-    ke = cost_of_equity(risk_free, beta_used, equity_risk_premium)
+    equity_risk_free = risk_free - sovereign_default_spread
+    if sovereign_default_spread > 0:
+        notes.append(
+            f"Cost of equity is built on {equity_risk_free:.2%}, the {risk_free:.2%} sovereign "
+            f"yield less a {sovereign_default_spread:.2%} default spread. The equity risk "
+            "premium already includes a country premium, so leaving the spread in would charge "
+            "for the same country risk twice. The cost of debt keeps the full yield, because a "
+            "borrower really does pay a spread over the bond its lenders could buy instead."
+        )
+
+    ke = cost_of_equity(equity_risk_free, beta_used, equity_risk_premium)
     kd, kd_basis = cost_of_debt(hist, risk_free)
     notes.append(f"Cost of debt: {kd_basis}.")
 
@@ -202,6 +245,8 @@ def build_wacc(
     return WACCResult(
         ticker=ticker,
         risk_free=risk_free,
+        sovereign_default_spread=sovereign_default_spread,
+        equity_risk_free=equity_risk_free,
         equity_risk_premium=equity_risk_premium,
         beta_used=beta_used,
         cost_of_equity=ke,

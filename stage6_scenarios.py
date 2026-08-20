@@ -61,7 +61,8 @@ def main() -> int:
                          fetch_price_history(market["index_ticker"], years=5),
                          market["index_name"])
     w = build_wacc(ticker, hist, beta, snap.market_cap / 1e6, rf,
-                   market["equity_risk_premium"], base_assumptions.tax_rate)
+                   market["equity_risk_premium"], base_assumptions.tax_rate,
+                   sovereign_default_spread=market.get("sovereign_default_spread", 0.0))
 
     if validate_wacc(w, base_assumptions.terminal_growth):
         print("WACC failed validation; cannot proceed.")
@@ -166,9 +167,9 @@ def main() -> int:
             print("  preserve their true magnitude even though they read as negative.")
 
     section("NEXT")
-    print("  Stage 7 adds Monte Carlo (treating these same drivers as distributions rather")
-    print("  than fixed points) and a final summary blending the DCF with Stage 5's")
-    print("  comparable-company valuation.")
+    print("  Stage 7 treats these same drivers as distributions rather than fixed points,")
+    print("  and reports a range across independent methods:")
+    print(f"    .venv/bin/python stage7_monte_carlo.py --ticker {ticker}")
     return 0
 
 

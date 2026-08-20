@@ -68,7 +68,19 @@ INDIA_MARKET = {
     # Mature-market equity risk premium plus an India country risk premium. Damodaran's
     # published India total ERP has run in the 7-8% range; 7.5% is used and is an
     # assumption, not a measurement, so it is named here and overridable.
+    #
+    # This is a *total* premium and therefore belongs on top of a default-free rate. The
+    # rupee 10-year above is not one: it yields more than a Treasury partly for expected
+    # inflation and partly because lenders price the sovereign's own default risk, and the
+    # country premium inside this 7.5% charges for that same risk again. The spread below
+    # is stripped from the yield before CAPM sees it; see wacc.py.
     "equity_risk_premium": 0.075,
+    # India's sovereign default spread, from its Baa3/BBB- rating. Subtracted from the
+    # quoted rupee yield to get the default-free rate CAPM requires. A cross-check that the
+    # two routes now agree: rupee yield less this spread, plus the total premium, lands
+    # within ~70bp of the rupee yield plus a mature-market premium alone. Before the fix
+    # the same two routes disagreed by ~250bp, which was the double count showing up.
+    "sovereign_default_spread": 0.022,
     # Long-run nominal GDP growth for India, the ceiling on terminal growth. Higher than
     # the US ceiling because both real growth and target inflation are higher.
     "nominal_gdp_growth": 0.09,
@@ -102,7 +114,9 @@ US_MARKET = {
     "index_ticker": "^GSPC",
     "index_name": "S&P 500",
     "risk_free_series": "DGS10",
-    "equity_risk_premium": 0.045,
+    "equity_risk_premium": 0.045,  # mature market, no country premium to add
+    # The Treasury is the benchmark default-free rate, so there is nothing to strip out.
+    "sovereign_default_spread": 0.0,
     "nominal_gdp_growth": 0.04,
     "inflation": 0.02,
 }
@@ -117,6 +131,8 @@ GENERIC_MARKET = {
     "index_name": "S&P 500 (proxy: no calibrated local index)",
     "risk_free_series": "DGS10",
     "equity_risk_premium": 0.055,  # mature-market ERP plus a margin for the uncalibrated case
+    # The proxy rate is a US Treasury yield, which is already default-free.
+    "sovereign_default_spread": 0.0,
     "nominal_gdp_growth": 0.035,
     "inflation": 0.025,
     "is_generic": True,

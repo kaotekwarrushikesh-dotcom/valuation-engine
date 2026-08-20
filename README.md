@@ -7,16 +7,20 @@ fair value per share. Built for **Nifty (NSE-listed) companies**, in INR, with a
 **Quick DCF** mode for any listed company worldwide (see
 [Quick DCF: any company](#quick-dcf-any-company)).
 
-**Status: Stages 1 to 6 built, plus Quick DCF.** Assumptions, forecast, FCFF, WACC, the DCF,
-comparable company valuation, and bull/base/bear scenarios with sensitivity tables all run and
-are tested for the curated universe. The DCF's fair value is systematically below the market
-for every company in the universe; comparables are not, and the gap between the two methods is
-itself the diagnosis, not a mystery, so every scenario built on the DCF inherits it. **The DCF
-valuations are not published or quoted on their own** until this is resolved with a richer
-terminal-value treatment. What is happening and the evidence for it are written up in
-[Calibration](#calibration-the-model-reads-low-and-why) below, because a model that is wrong
-in a known direction, with the evidence for why, is more useful than one quietly tuned until
-it agrees.
+**Status: Stages 1 to 7 built, plus Quick DCF.** Assumptions, forecast, FCFF, WACC, the DCF,
+comparable company valuation, bull/base/bear scenarios with sensitivity tables, and Monte
+Carlo with a blended cross-method summary all run and are tested for the curated universe.
+
+The DCF still reads below market across this universe, and that is reported rather than
+tuned away. A real error was found in the process: the cost of equity was charging India's
+country risk twice, once inside the rupee government yield and again inside a total equity
+risk premium built to sit on a default-free rate. Fixing it moved the median WACC from
+13.34% to 11.17% and closed about 15 points of the gap. The gap that remains, and the two
+groups of companies it concentrates in, are set out in
+[Calibration](#calibration-the-model-read-low-what-was-wrong-and-what-still-is) below, along
+with the first diagnosis published here that turned out to be wrong and how it was
+disproved. **The DCF is never quoted on its own**: the app pairs it with comparables, or
+says plainly when no comparables exist.
 
 ## Quick start
 
@@ -37,18 +41,19 @@ Run the interactive app:
 .venv/bin/streamlit run app.py
 ```
 
-The app has two modes. **Curated Nifty universe** runs the full workflow (Stages 1 to 6) for
+The app has two modes. **Curated Nifty universe** runs the full workflow (Stages 1 to 7) for
 the 33 hand-picked companies, DCF paired with comparables. **Quick DCF** takes any listed
 company by name or ticker, fetched live via Yahoo Finance, anywhere in the world, and runs
-DCF plus scenarios without comparables, since real sector peers only exist for the curated
-universe (see [Quick DCF: any company](#quick-dcf-any-company) below).
+DCF, scenarios and Monte Carlo without comparables, since real sector peers only exist for
+the curated universe (see [Quick DCF: any company](#quick-dcf-any-company) below).
 
 The app deliberately never shows the DCF's implied price without comparables next to it in
-curated mode, per the Calibration section: across this universe the DCF's terminal-value
-method reads systematically below market for high-quality, low-growth compounders, and
-comparables do not share that failure mode, so pairing them is what stops one model's opinion
-from being read as a verdict. Quick DCF mode has no comparables to pair with, so it says so
-explicitly instead of silently omitting the caveat.
+curated mode, per the Calibration section: the DCF reads below market across this universe,
+comparables do not, and pairing them is what stops one model's opinion from being read as a
+verdict. Where the two disagree by more than 40% of the current price, the summary reports
+the range and refuses to average them into a central figure, because the midpoint of two
+methods that disagree is a number no analysis supports. Quick DCF mode has no comparables to
+pair with, so it says so explicitly instead of silently omitting the caveat.
 
 Run the stages for one company from the terminal instead:
 
@@ -74,6 +79,10 @@ Run the stages for one company from the terminal instead:
 
 ```bash
 .venv/bin/python stage6_scenarios.py --ticker RELIANCE
+```
+
+```bash
+.venv/bin/python stage7_monte_carlo.py --ticker RELIANCE
 ```
 
 Build the report (PDF plus a CSV of every driver):
@@ -205,6 +214,54 @@ past it that no investor could actually experience. The sensitivity grids are th
 exception: they show the raw, unfloored numbers on purpose, since a grid exists to reveal
 the shape and magnitude of a sensitivity, and flattening a whole stressed region to zero
 would hide exactly what the table is for.
+
+## Stage 7: Monte Carlo and the blended summary
+
+Stage 6's bear case is one path chosen by hand. It says nothing about how *likely* any
+outcome is, and a bear case two points below the base reads the same whether those two points
+are a routine year or a once-in-a-decade shock. Stage 7 replaces the three chosen points with
+a distribution for each driver and runs the full valuation a few thousand times.
+
+**Every distribution's width is measured, not chosen.** This is the whole discipline of the
+stage: a Monte Carlo with invented variances is the modeller's guess with error bars drawn on
+it, and it looks far more authoritative than the guess did on its own.
+
+| Driver | Width comes from |
+|---|---|
+| Revenue growth | Standard deviation of the company's own historical revenue growth |
+| EBITDA margin | Standard deviation of its own historical EBITDA margin |
+| WACC | The **regression standard error of beta** from Stage 3, scaled by the equity risk premium and the equity weight, so a poorly estimated beta produces a genuinely wider valuation |
+| Terminal growth | Bounded uniform between the inflation floor and the GDP ceiling |
+
+Terminal growth is the one driver with no measurable history, because it describes a period
+that has not happened. A bounded "somewhere in this range, no view within it" is more honest
+there than a normal distribution whose mean and variance would both be invented.
+
+**Growth and margin are drawn correlated** (0.35, a stated constant). Operating leverage ties
+them together in a downturn; drawing them independently would let good growth pair with bad
+margin as often as bad with bad, cancelling much of the tail and producing a distribution too
+narrow. Narrowness that comes from a modelling shortcut is indistinguishable from precision,
+which is the specific way this kind of model misleads. Four years cannot support a measured
+correlation, so the constant is disclosed rather than dressed up as an estimate.
+
+**Failed trials are counted, not dropped.** A draw where terminal growth lands above WACC has
+no finite value. Silently discarding those would remove exactly the bad draws and bias the
+reported distribution upward, so the failure rate is reported alongside the percentiles, and a
+high one is itself the finding.
+
+The headline output is not a number but a probability: **the share of trials valuing the
+company above its current price.** A point estimate says more or less; this says how often,
+across the plausible range of the company's own inputs. The percentiles rather than the mean
+are reported, because the Gordon-growth denominator produces a long right tail as drawn
+terminal growth approaches drawn WACC, and the mean sits somewhere no trial clusters.
+
+**The blended summary reports a range and refuses to average methods that disagree.** Where
+the DCF and comparables span more than 40% of the current price, no central figure is
+presented: a DCF at -60% and comparables at +3% have a midpoint near -30%, and no analysis
+supports -30%. The disagreement is the result, and it is the same signal that made this
+engine's own calibration work possible. Monte Carlo's median is carried as context rather
+than as a third method, because it is the same DCF sampled over its own inputs and would
+double-count the DCF's view against the one genuinely independent method available.
 
 ## How this connects to Module 1
 
@@ -351,6 +408,8 @@ valuation_engine/
 │   ├── comparables.py          peer multiples, statistics, implied valuation
 │   ├── scenarios.py            bull/base/bear, each independently computed
 │   ├── sensitivity.py          WACC/growth grids, growth/margin grid, driver ranking
+│   ├── monte_carlo.py          driver distributions, measured widths, trial distribution
+│   ├── blended.py              cross-method range; refuses to average disagreeing methods
 │   ├── reporting.py            the PDF report
 │   └── market_data.py          prices, share counts, risk-free rate
 ├── tests/
@@ -361,7 +420,8 @@ valuation_engine/
 ├── stage3_wacc.py
 ├── stage4_dcf.py
 ├── stage5_comparables.py
-└── stage6_scenarios.py
+├── stage6_scenarios.py
+└── stage7_monte_carlo.py
 ```
 
 ## Data sources
@@ -370,97 +430,174 @@ valuation_engine/
 |---|---|---|
 | Financial statements | yfinance (NSE) | 4-5 years; EDGAR path available for US names |
 | Share price, share count | yfinance | Cached, so a valuation does not change because a quote moved |
-| Risk-free rate | FRED `INDIRLTLT01STM` | India 10Y government bond |
+| Risk-free rate | FRED `INDIRLTLT01STM` | India 10Y government bond, as quoted |
+| Sovereign default spread | Assumption, 2.2% | Stripped from the yield before CAPM; see Calibration |
 | Index for beta | `^NSEI` | Nifty 50 |
-| Equity risk premium | Assumption, 7.5% | Named and overridable, not buried in the WACC |
+| Equity risk premium | Assumption, 7.5% | Total (mature + country); named and overridable |
 
-## Calibration: the model reads low, and why
+## Calibration: the model read low, what was wrong, and what still is
 
-Running the DCF across the universe gives a fair value below the market price for **every
-one of the 32 companies**. When a model disagrees with the market on every name in the same
-direction, that is worth pinning down rather than publishing anyway, so the valuations are
-not surfaced on the portfolio dashboard until this section is resolved or the finding is
-confirmed and stated as a finding rather than a defect.
+Running the DCF across the universe originally gave a fair value below the market price for
+**every one of the 32 companies**, a median of **-74.7%**, with only 2 companies above
+market. When a model disagrees with the market on every name in the same direction, that is
+worth pinning down rather than publishing anyway.
 
-The reverse DCF is the instrument for pinning it down: it solves for the discount rate at
-which the model would agree with today's price, which turns a verdict into a question.
+This section is kept as a record of the investigation rather than trimmed to its conclusion,
+because the first published diagnosis here was wrong, and the way it was wrong is the useful
+part: it was a plausible story that fitted a handful of examples, and it survived until it
+was tested against the whole universe rather than the examples that suggested it.
 
-| | Modelled WACC | Market-implied WACC | Gap | Terminal growth | Capex intensity |
-|---|---|---|---|---|---|
-| TCS | 14.24% | 11.78% | 2.46% | 5.8% | 1.5% to 3.2%, low throughout |
-| Infosys | 12.90% | 10.88% | 2.02% | 3.4% | low throughout |
-| Reliance | 13.01% | 8.47% | 4.54% | 6.4% | 15.3% fading to 12.6% |
-| Hindustan Unilever | 13.48% | 6.00% | 7.48% | 4.0% (inflation floor) | minimal |
-| **Median across 32** | **~13.4%** | **~9.3%** | **~4.0%** | | |
+### The first diagnosis, and why it did not survive
 
-**First correction, real and confirmed.** Terminal reinvestment was made consistent with
-terminal growth (`reinvestment rate = g / ROIC`), but that correction was applied only to
-the terminal year. The explicit forecast years still held capex at its historical share of
-revenue while growth faded down underneath it, which is the same incoherence in miniature,
-repeated for five years. Capex intensity is now faded toward the terminal-consistent level
-across the explicit horizon too, the same way revenue growth already fades toward terminal
-growth. This is a real fix: it moved Reliance's implied share price from an unusable 22
-rupees to 323, and the reinvestment identity behind it is tested directly.
+The original explanation was that a conservative, GDP-and-inflation-capped terminal growth
+rate was starving the terminal value, and that the gap should therefore be largest for
+high-quality, low-growth compounders whose growth was capped hardest. Hindustan Unilever,
+pinned at the 4% inflation floor with the widest gap in the universe, fitted that story
+neatly.
 
-**That fix did not close the gap, and the evidence says why.** After the correction, the
-median WACC gap moved from 3.99% to 4.00%, essentially unchanged. TCS and Infosys, whose
-capex is close to nothing in either version of the model, still show a two-point gap.
-Hindustan Unilever, a fully domestic, low-capex, high-margin compounder, shows the *largest*
-gap in the universe at 7.48 points, an implied discount rate of 6.00% against a 7.02%
-risk-free rate, meaning the market prices it almost like a bond. Capex was never the driver
-for either of these; both were already asset-light before the fix.
+It does not survive contact with the rest of the universe. The companies pinned at the
+*highest* terminal growth the model allows, the full 9% GDP ceiling, were among the **worst**
+readings, not the best:
 
-The pattern across the table is the actual explanation: **the gap is largest for the
-highest-quality, lowest-growth, most richly-rated compounders, and smallest for the more
-cyclical, higher-growth or higher-capex names.** That is the textbook, well-documented
-failure mode of a Gordon-growth terminal value fed a conservative, GDP-and-inflation-capped
-growth rate: the market pays a premium for stability, quality, and optionality beyond the
-forecast horizon that a mechanical perpetuity formula does not capture, and it pays that
-premium precisely for the businesses that most resemble annuities. This is not a coding
-defect, and treating it as one by lowering the equity risk premium until the numbers agree
-would be curve-fitting the assumption to a wanted answer, which is the one thing this engine
-is built not to do.
+| At the 9% GDP ceiling | Upside (before any fix) |
+|---|---|
+| UltraTech Cement | -97.6% |
+| Titan | -92.7% |
+| Divi's Laboratories | -84.9% |
+| Nestlé India | -82.2% |
 
-**What was checked and deliberately left alone.** The equity risk premium was checked
-before being ruled out as the culprit: working the cost of equity through dollars instead
-(4.63% Treasury + 4.5% mature ERP + 3.0% country premium, plus the inflation differential)
-lands at 14.5%, matching the rupee build, so 7.5% is defensible on its own terms. Lowering
-it anyway to shrink the gap would treat the symptom rather than the cause, and the cause is
-the terminal-value mechanism, not the discount rate.
+If a capped terminal growth rate were the mechanism, these companies, capped at nothing,
+should have read closest to market. They read furthest from it.
 
-**Confirmation from an independent method.** Stage 5 (comparable company valuation, below)
-prices each company off what the market currently pays for its sector peers rather than off
-a forecast of its own cash flows, so it shares almost none of the DCF's machinery and none
-of its terminal-value mechanism. Across the 25 companies with enough sector peers to value:
+Testing each candidate lever one at a time across the universe made that conclusive. Each
+row re-runs the full valuation for all 32 companies changing only the named input:
 
-| | DCF median upside | Comparables median upside |
+| Lever | Median upside | Above market |
 |---|---|---|
-| **Universe-wide** | **-72.6%** | **+2.9%** |
-| TCS | -27.8% | -9.8% |
+| Baseline | -74.7% | 2 / 33 |
+| Terminal growth raised to the GDP ceiling for every company | -66.8% | 7 / 33 |
+| ROIC faded to WACC in perpetuity (competitive equilibrium) | -71.8% | 1 / 33 |
+| ROIC faded halfway to WACC | -70.4% | 1 / 33 |
+| **WACC reduced 200bp** | **-60.1%** | **7 / 32** |
 
-Comparables land close to fair value on the same underlying financial statements and market
-data the DCF uses. That rules out a data or arithmetic bug as the explanation, since a bug
-in the shared inputs would drag both methods off in the same direction, and confirms the
-terminal-value mechanism specifically as the source: comparables do not have one, and
-comparables do not show the gap.
+Terminal growth moved the median 8 points. The standard stable-growth fix, letting excess
+returns compete away, made it *worse*. The discount rate was the only lever that mattered,
+which pointed the investigation at WACC rather than at the terminal value.
 
-**What is still open.** The fix is a richer terminal-value treatment, most likely a
-multi-stage fade with an explicit high-growth, transition and mature phase rather than a
-single perpetuity growth rate, or leaning on the exit-multiple terminal value (already built
-in Stage 4) using sector multiples from Stage 5 rather than the perpetuity-growth method for
-the businesses where the gap is largest. Until one of those lands, the DCF and comparables
-outputs are best read side by side rather than the DCF being quoted alone.
+### The real error: country risk counted twice
+
+The cost of equity was built as India's rupee 10-year government yield (6.89%) plus a 7.5%
+equity risk premium. Both numbers are individually defensible. Together they are not.
+
+A 7.5% India ERP is a *total* premium: a mature-market premium of roughly 4.6% plus an India
+country risk premium of roughly 2.9%. A total premium of that construction is designed to sit
+on top of a **default-free** rate. The rupee 10-year is not one. It yields more than a
+Treasury partly because expected rupee inflation is higher and partly because lenders price
+the chance the sovereign does not pay. That second component is country risk, and the country
+premium inside the 7.5% charges for it a second time.
+
+The size of the double count is visible directly in the bond market. India's 10-year yields
+269bp over the US 10-year, and that spread is the market's combined price of the inflation
+differential *and* sovereign risk. The dollar-route build added a 2.9% country premium and
+then inflation-scaled the result, implying roughly 476bp of India-specific premium against
+the 269bp the bond market actually charges.
+
+**The previous version of this section defended the 7.5% ERP with a check that repeated the
+error.** It reported that building the cost of equity through dollars (Treasury + mature ERP
++ country premium, inflation-adjusted) landed at 14.5%, matching the rupee build, and
+concluded the premium was therefore sound. Both routes added the country premium, so agreeing
+with each other confirmed nothing except that the same mistake had been made twice. A check
+that cannot fail is not a check.
+
+The fix strips the sovereign default spread from the risk-free rate before CAPM sees it, and
+leaves the cost of *debt* on the full quoted yield, because a company really does borrow at a
+spread over the actual government bond its lenders could buy instead. The two routes now
+agree within about 70bp rather than disagreeing by 250bp, which is a real cross-check.
+
+| | Before | After |
+|---|---|---|
+| Median WACC | 13.34% | **11.17%** |
+| Median DCF upside | -74.7% | **-59.9%** |
+| Companies above market | 2 / 33 | **8 / 32** |
+| Within +/-30% of market | 4 / 33 | **9 / 32** |
+
+### An earlier correction, kept for the record
+
+Before the WACC finding, terminal reinvestment was made consistent with terminal growth
+(`reinvestment rate = g / ROIC`), but only in the terminal year: the explicit forecast years
+still held capex at its historical share of revenue while growth faded down underneath them,
+the same incoherence repeated five times. Capex now fades toward its terminal-consistent
+level across the whole horizon. That was a genuine fix, moving Reliance from an unusable 22
+rupees a share to 323, and the reinvestment identity behind it is tested directly. It barely
+moved the universe-wide median, which is what first suggested the problem lay somewhere other
+than the cash flows.
+
+### The independent cross-check, and what it still says
+
+Stage 5 prices each company off what the market pays for its sector peers rather than off a
+forecast of its own cash flows, so it shares almost none of the DCF's machinery and no
+terminal-value mechanism at all. It is unaffected by the WACC fix, since multiples carry no
+discount rate, which makes it a fixed benchmark across the whole investigation.
+
+| | DCF (before) | DCF (after) | Comparables |
+|---|---|---|---|
+| Median upside | -74.7% | -59.9% | **+2.9%** |
+| TCS | -26.8% | -2.5% | -9.8% |
+
+That two methods built from the same statements moved apart rather than together is what
+ruled out a data or arithmetic bug from the start: a bad input would have dragged both in the
+same direction. After the fix, TCS's two methods agree within 7% of the current price, where
+before they were 17 points apart.
+
+### What is still wrong, and is being reported rather than fixed
+
+A -59.9% median is still a long way from fair value, and the remaining gap is **not** claimed
+to be resolved. It concentrates in two groups:
+
+**Capital-intensive companies earning less on capital than their cost of capital.** UltraTech
+earns about 10% on invested capital against an 11-13% WACC. The reinvestment identity then
+charges it roughly 88% of NOPAT to fund GDP-rate growth, leaving almost no free cash and a
+near-zero value. The arithmetic is internally consistent and the economics are defensible
+(growth funded below the cost of capital does destroy value), but a DCF is arguably the wrong
+instrument for a cyclical valued on mid-cycle or replacement-cost logic. Tata Steel, Hindalco,
+JSW Steel and NTPC all fail the same way. The engine flags ROIC below WACC on every affected
+company rather than printing the number quietly.
+
+**Richly-rated consumer franchises.** Hindustan Unilever, Asian Paints, Britannia and Titan
+still read 70-85% below market. Here the original terminal-value intuition may well be part
+of the answer, even though it was wrong as a universe-wide explanation: the market pays for
+brand durability and optionality beyond a five-year horizon that a perpetuity formula fed a
+capped growth rate does not capture.
+
+There is also a broader possibility this engine cannot settle on its own evidence: that a
+CAPM cost of equity built on Indian inputs is simply higher than the discount rate Indian
+equity investors actually apply, and that the Nifty trades at multiples no defensible DCF
+reproduces. That is a claim about the market, not about the model, and it is not one to make
+from 32 companies and four years of history.
+
+What has deliberately **not** happened is tuning an assumption until the numbers agree. The
+equity risk premium was not lowered to close the gap; a specific, identifiable double count
+was found and corrected, and the gap that remained afterward is reported as it is.
 
 ## Roadmap
 
-Stages 1 to 6 run end to end. The DCF (Stage 4) and comparables (Stage 5) disagree by
-design at this point, per the Calibration section, and that disagreement is the current
-state of the module rather than a bug hidden before Stage 6 landed; every scenario and
-sensitivity table in Stage 6 inherits it, since they are all built on the same terminal-value
-mechanism as the base-case DCF.
+Stages 1 to 7 run end to end. The residual DCF-versus-comparables gap documented in
+Calibration is the current state of the module rather than a defect hidden before Stage 7
+landed: every scenario, sensitivity table and Monte Carlo trial is built on the same DCF and
+inherits whatever remains of it, which is exactly why the Stage 7 summary reports a range
+across methods instead of a single number.
 
-- **Stage 7** Monte Carlo (the scenario drivers as distributions rather than fixed points)
-  and a final summary that blends DCF and comparables rather than picking one
+What would move this further, in rough order of how much it would settle:
+
+- **A multi-stage terminal value**: an explicit high-growth, transition and mature phase
+  rather than a single perpetuity rate, or an exit-multiple terminal value (already built in
+  Stage 4) fed by Stage 5 sector multiples for the companies where the gap is widest. This
+  targets the richly-rated consumer franchises specifically.
+- **An FCFE or excess-return model** for the capital-intensive companies earning below their
+  cost of capital, where an unlevered DCF on mid-cycle economics is arguably the wrong
+  instrument rather than a mis-calibrated one.
+- **A longer history than four years**, which is the single constraint behind the most
+  limitations listed below.
 
 ## Known limitations
 
@@ -468,8 +605,11 @@ mechanism as the base-case DCF.
    with four years each half is two observations. The engine warns; it does not pretend.
 2. **yfinance is an unofficial interface.** It can change or return nothing without notice.
    Every call is treated as capable of failing.
-3. **The equity risk premium is an estimate, not a measurement.** It is stated as a named
-   assumption because there is no public feed for it the way there is for a bond yield.
+3. **The equity risk premium and the sovereign default spread are estimates, not
+   measurements.** Both are stated as named assumptions because there is no public feed for
+   either the way there is for a bond yield. They now also interact: the premium is a total
+   one and the spread is what makes the risk-free rate it sits on default-free, so changing
+   one without the other reintroduces the double count described in Calibration.
 4. **Assumption rules are deliberately conservative.** Flat margins and capped terminal
    growth will understate a genuinely improving business. The bias is toward not being
    talked into a valuation, and it is a bias.
@@ -492,3 +632,14 @@ mechanism as the base-case DCF.
    Both are disclosed in the app rather than hidden, but a Quick DCF result for a company in
    an uncalibrated currency is indicative only, more so than the limitations above that apply
    everywhere in this engine.
+10. **The DCF still reads below market, and the remaining gap is unexplained.** A median of
+    -59.9% after the country-risk fix is not a resolved model. Calibration sets out where it
+    concentrates and what would likely move it; nothing here should be read as a fair value
+    on the strength of the DCF alone.
+11. **Monte Carlo samples the model's inputs, not the model's structure.** It answers "how
+    much does the answer move across plausible inputs", never "is the model right". Every
+    trial inherits the same terminal-value mechanism, so a distribution can be tight and
+    wrong together, and a tight distribution is not evidence of a good valuation.
+12. **The growth/margin correlation is assumed, not measured.** Four years cannot support a
+    correlation estimate. It is set at 0.35 and stated; a materially different true value
+    would change the width of the tails without changing the median much.

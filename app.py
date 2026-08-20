@@ -1,18 +1,21 @@
 """Institutional-Style Valuation Engine, as an app.
 
 Pick a Nifty company, get its full valuation workflow: historical assumptions, forecast and
-FCFF, WACC, a discounted cash flow, and comparable-company multiples, side by side.
+FCFF, WACC, a discounted cash flow, comparable-company multiples, scenarios and a Monte
+Carlo, side by side.
 
-The DCF and comparables are shown together deliberately, never the DCF alone. Across this
-universe the DCF's Gordon-growth terminal value reads systematically below market for
-high-quality, low-growth compounders (see the README's Calibration section), and comparables
-do not share that mechanism, so pairing them is what stops one number from being read as a
-verdict when it is actually one model's opinion among two that disagree.
+The DCF and comparables are shown together deliberately, never the DCF alone. The DCF still
+reads below market across this universe after a country-risk double count in the cost of
+equity was found and fixed (see the README's Calibration section), and comparables do not
+share that machinery, so pairing them is what stops one number from being read as a verdict
+when it is actually one model's opinion among two that disagree. Where they disagree widely
+the summary reports the range rather than averaging them into a midpoint no method supports.
 """
 
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -21,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.valuation import assumptions as asmp
 from src.valuation import historical
 from src.valuation.beta import estimate_beta
+from src.valuation.blended import build_blended
 from src.valuation.comparables import (
     MIN_PEERS,
     MULTIPLE_LABELS,
@@ -37,6 +41,7 @@ from src.valuation.dcf import cross_checks, reverse_dcf, run_dcf
 from src.valuation.fcff import build_fcff
 from src.valuation.forecasting import build_forecast
 from src.valuation.market_data import fetch_price_history, fetch_snapshot, risk_free_rate
+from src.valuation.monte_carlo import run_monte_carlo
 from src.valuation.global_data import fetch as fetch_global
 from src.valuation.global_search import search as search_global
 from src.valuation.scenarios import run_all_scenarios
@@ -79,7 +84,7 @@ def load_peer_multiples(full_ticker: str):
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def run_pipeline(full_ticker: str, horizon: int = 5):
-    """Stages 1 through 6 for one company. Cached 30 minutes: market data moves, the
+    """Stages 1 through 7 for one company. Cached 30 minutes: market data moves, the
     underlying financial statements do not, on any timescale that matters here."""
     ticker = full_ticker.replace(".NS", "")
     name, sector = NIFTY_UNIVERSE[full_ticker]
@@ -105,7 +110,8 @@ def run_pipeline(full_ticker: str, horizon: int = 5):
         INDIA_MARKET["index_name"],
     )
     wacc_result = build_wacc(ticker, hist, beta, snap.market_cap / 1e6, rf,
-                             INDIA_MARKET["equity_risk_premium"], a.tax_rate)
+                             INDIA_MARKET["equity_risk_premium"], a.tax_rate,
+                             sovereign_default_spread=INDIA_MARKET["sovereign_default_spread"])
     wacc_errors = validate_wacc(wacc_result, a.terminal_growth)
 
     net_debt = float(hist["net_debt"].iloc[-1])
@@ -137,11 +143,25 @@ def run_pipeline(full_ticker: str, horizon: int = 5):
 
     # Scenarios (only if the base WACC is usable)
     scenarios = None
+    monte_carlo = None
     if not wacc_errors:
         scenarios = run_all_scenarios(
             hist, analysis, ticker, a, wacc_result.wacc, net_debt, shares, snap.share_price,
             cur, INDIA_MARKET["nominal_gdp_growth"], INDIA_MARKET["inflation"], horizon,
         )
+        monte_carlo = run_monte_carlo(
+            hist, analysis, ticker, a, wacc_result.wacc, beta.standard_error,
+            INDIA_MARKET["equity_risk_premium"], wacc_result.weight_equity, net_debt, shares,
+            snap.share_price, cur, INDIA_MARKET["nominal_gdp_growth"],
+            INDIA_MARKET["inflation"], horizon,
+        )
+
+    blended = build_blended(
+        ticker=ticker, currency=cur, current_share_price=snap.share_price,
+        dcf_share_price=dcf_result.implied_share_price_floored if dcf_result else None,
+        comparables_share_price=comparables.blended_share_price if comparables else None,
+        monte_carlo_median=monte_carlo.median if monte_carlo else None,
+    )
 
     return {
         "mode": "curated", "currency": cur,
@@ -154,13 +174,13 @@ def run_pipeline(full_ticker: str, horizon: int = 5):
         "dcf": dcf_result, "dcf_error": dcf_error, "dcf_checks": dcf_checks,
         "implied_wacc": implied_wacc, "net_debt": net_debt,
         "target_multiples": target, "peers": peers, "comparables": comparables,
-        "scenarios": scenarios,
+        "scenarios": scenarios, "monte_carlo": monte_carlo, "blended": blended,
     }
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def run_quick_pipeline(query: str, horizon: int = 5):
-    """Stages 1, 2, 3, 4 and 6 for any company, fetched live. No comparables: real sector
+    """Stages 1, 2, 3, 4, 6 and 7 for any company, fetched live. No comparables: real sector
     peers only exist for the curated universe (see universe.py), and an auto-discovered
     peer group would be lower quality without saying so, which defeats the point of having
     comparables as a cross-check in the first place."""
@@ -191,7 +211,8 @@ def run_quick_pipeline(query: str, horizon: int = 5):
         market["index_name"],
     )
     wacc_result = build_wacc(ticker, hist, beta, company.market_cap / 1e6, rf,
-                             market["equity_risk_premium"], a.tax_rate)
+                             market["equity_risk_premium"], a.tax_rate,
+                             sovereign_default_spread=market.get("sovereign_default_spread", 0.0))
     wacc_errors = validate_wacc(wacc_result, a.terminal_growth)
 
     net_debt = float(hist["net_debt"].iloc[-1])
@@ -215,11 +236,24 @@ def run_quick_pipeline(query: str, horizon: int = 5):
         implied_wacc = reverse_dcf(fcff, company.market_cap / 1e6, net_debt, a.terminal_growth, roic)
 
     scenarios = None
+    monte_carlo = None
     if not wacc_errors:
         scenarios = run_all_scenarios(
             hist, analysis, ticker, a, wacc_result.wacc, net_debt, shares, company.share_price,
             cur, market["nominal_gdp_growth"], market["inflation"], horizon,
         )
+        monte_carlo = run_monte_carlo(
+            hist, analysis, ticker, a, wacc_result.wacc, beta.standard_error,
+            market["equity_risk_premium"], wacc_result.weight_equity, net_debt, shares,
+            company.share_price, cur, market["nominal_gdp_growth"], market["inflation"], horizon,
+        )
+
+    blended = build_blended(
+        ticker=ticker, currency=cur, current_share_price=company.share_price,
+        dcf_share_price=dcf_result.implied_share_price_floored if dcf_result else None,
+        comparables_share_price=None,
+        monte_carlo_median=monte_carlo.median if monte_carlo else None,
+    )
 
     return {
         "mode": "quick", "currency": cur, "market_calibrated": calibrated,
@@ -233,7 +267,7 @@ def run_quick_pipeline(query: str, horizon: int = 5):
         "dcf": dcf_result, "dcf_error": dcf_error, "dcf_checks": dcf_checks,
         "implied_wacc": implied_wacc, "net_debt": net_debt,
         "target_multiples": None, "peers": [], "comparables": None,
-        "scenarios": scenarios,
+        "scenarios": scenarios, "monte_carlo": monte_carlo, "blended": blended,
     }
 
 
@@ -315,20 +349,35 @@ st.divider()
 
 # --- Calibration banner: never let the DCF stand alone -------------------------------------
 st.warning(
-    "**Read the DCF and comparables together, not the DCF alone.** Across this universe the "
-    "DCF's terminal-value method reads systematically below market for high-quality, "
-    "low-growth compounders, a known and documented limitation, not a data bug (median "
-    "comparables upside across the universe is +2.9%, close to fair value, against the DCF's "
-    "-72.6%, built from the same underlying data). Full evidence and methodology: "
+    "**Read the DCF and comparables together, not the DCF alone.** The DCF still reads below "
+    "market across this universe (median -59.9%, against comparables at +2.9% on the same "
+    "statements). A country-risk double count in the cost of equity was found and fixed, "
+    "which closed about 15 points of that gap; the rest sits mostly in capital-intensive "
+    "companies earning less on capital than their cost of capital, where a DCF is arguably "
+    "the wrong instrument, and in richly-rated consumer franchises. The remaining gap is "
+    "reported rather than tuned away. Full evidence and methodology: "
     "[README, Calibration section](https://github.com/kaotekwarrushikesh-dotcom/valuation-engine"
-    "#calibration-the-model-reads-low-and-why)."
+    "#calibration-the-model-read-low-what-was-wrong-and-what-still-is)."
 )
 
 tabs = st.tabs(["Valuation summary", "Historical & assumptions", "Forecast & FCFF", "WACC",
-                "Scenarios", "Methodology"])
+                "Scenarios", "Monte Carlo", "Methodology"])
 
 # --- Tab 1: Valuation summary ----------------------------------------------------------------
 with tabs[0]:
+    bl = r["blended"]
+    if bl.usable:
+        st.subheader("Across methods")
+        b1, b2, b3 = st.columns(3)
+        b1.metric("Range low", f"{cur} {bl.low:,.2f}")
+        b2.metric("Central", f"{cur} {bl.central:,.2f}",
+                  None if bl.methods_disagree else f"{bl.upside:+.1%}")
+        b3.metric("Range high", f"{cur} {bl.high:,.2f}")
+        (st.warning if bl.methods_disagree else st.success)(bl.verdict)
+        for note in bl.notes:
+            st.caption(f"ℹ️ {note}")
+        st.divider()
+
     left, right = st.columns(2)
 
     with left:
@@ -494,10 +543,62 @@ with tabs[4]:
                           "exceeds enterprise value, floored at zero rather than shown "
                           "negative, since equity cannot trade below zero.")
 
-# --- Tab 6: Methodology --------------------------------------------------------------------------
+# --- Tab 6: Monte Carlo ------------------------------------------------------------------------
 with tabs[5]:
+    mc = r["monte_carlo"]
+    if mc is None:
+        st.info("WACC failed validation, so no Monte Carlo could be run.")
+    else:
+        st.subheader("Driver distributions")
+        st.caption(
+            "Every width below is measured from the company's own record, except terminal "
+            "growth, which describes a period that has not happened and is drawn uniformly "
+            "between the inflation floor and the GDP ceiling rather than given an invented "
+            "mean and variance. A Monte Carlo with invented variances is the modeller's guess "
+            "with error bars drawn on it."
+        )
+        st.dataframe(mc.distributions.table(), width="stretch", hide_index=True)
+        for note in mc.distributions.notes:
+            st.caption(f"ℹ️ {note}")
+
+        st.subheader("Distribution of fair values")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("5th percentile", f"{cur} {mc.percentile(5):,.2f}")
+        m2.metric("Median", f"{cur} {mc.median:,.2f}")
+        m3.metric("95th percentile", f"{cur} {mc.percentile(95):,.2f}")
+        m4.metric("Above market", f"{mc.probability_above_market:.0%}")
+
+        clipped = mc.prices[mc.prices <= mc.percentile(99)]
+        counts, edges = np.histogram(clipped, bins=40)
+        midpoints = (edges[:-1] + edges[1:]) / 2
+        st.bar_chart(
+            pd.DataFrame({"trials": counts}, index=pd.Index(midpoints.round(0), name=f"{cur} per share")),
+            y="trials",
+        )
+        st.caption(
+            f"Histogram truncated at the 99th percentile for readability. "
+            f"Completed {mc.completed} of {mc.trials} trials; {mc.failure_rate:.1%} failed, "
+            "where the drawn terminal growth met or exceeded the drawn WACC and the perpetuity "
+            "has no finite value. Failed trials are counted rather than dropped, since "
+            "discarding them would remove exactly the bad draws and bias the distribution upward."
+        )
+        st.caption(
+            f"**{mc.probability_above_market:.0%} of trials value the company above its current "
+            "price.** This is what a Monte Carlo is for: a point estimate says more or less, "
+            "this says how often, across the plausible range of the company's own inputs."
+        )
+        if mc.completed and (mc.percentile(95) - mc.median) > (mc.median - mc.percentile(5)) * 1.5:
+            st.caption(
+                "⚠️ The upper tail is much longer than the lower one. That is the Gordon-growth "
+                "denominator: as drawn terminal growth approaches the drawn WACC, the spread "
+                "between them shrinks toward zero and the terminal value rises without bound. "
+                "The mean is a poor summary here; the percentiles are the honest reading."
+            )
+
+# --- Tab 7: Methodology --------------------------------------------------------------------------
+with tabs[6]:
     st.markdown("""
-This app runs Stages 1 to 6 of the valuation engine live for the selected company:
+This app runs Stages 1 to 7 of the valuation engine live for the selected company:
 
 1. **Historical read & assumptions**: every forecast input is derived from the company's
    own history by a stated rule, never hard-coded, with a confidence level attached.
@@ -511,13 +612,17 @@ This app runs Stages 1 to 6 of the valuation engine live for the selected compan
    peer-group size and outlier flagging.
 6. **Scenarios**: bear/base/bull, each an independently recomputed valuation, not a flat
    haircut on the base case.
+7. **Monte Carlo & blended summary**: the same drivers as distributions rather than three
+   chosen points, with every width measured from the company's own record, and a final
+   range across independent methods that refuses to average them when they disagree.
 
 **Full source, every test, and the complete methodology and known limitations are in the
 repository:** [github.com/kaotekwarrushikesh-dotcom/valuation-engine](https://github.com/kaotekwarrushikesh-dotcom/valuation-engine)
 
 **This is a live, working model, not a finished verdict.** The Calibration section of the
-README documents a real, evidenced limitation in the DCF's terminal-value treatment for
-high-quality, low-growth companies, found and diagnosed using this same engine's Stage 5
-comparables as an independent check. Reading both numbers together, with the caveats above,
-is the intended use of this tool, not picking whichever number looks more decisive.
+README documents what happened when the DCF was found to read systematically below market:
+a country-risk double count in the cost of equity was found and fixed, and the gap that
+remained after it was reported rather than tuned away. Reading the DCF and comparables
+together, with the caveats above, is the intended use of this tool, not picking whichever
+number looks more decisive.
 """)

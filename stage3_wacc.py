@@ -91,6 +91,7 @@ def main() -> int:
     result = build_wacc(
         ticker=ticker, hist=hist, beta=b, market_cap=snap.market_cap / 1e6,
         risk_free=rf, equity_risk_premium=erp, tax_rate=a.tax_rate, peer_beta=peer_beta,
+        sovereign_default_spread=market.get("sovereign_default_spread", 0.0),
     )
 
     section("2. WACC BUILD")

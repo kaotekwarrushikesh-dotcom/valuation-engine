@@ -70,7 +70,8 @@ def main() -> int:
                          market["index_name"])
 
     w = build_wacc(ticker, hist, beta, snap.market_cap / 1e6, rf,
-                   market["equity_risk_premium"], a.tax_rate)
+                   market["equity_risk_premium"], a.tax_rate,
+                   sovereign_default_spread=market.get("sovereign_default_spread", 0.0))
 
     wacc_errors = validate_wacc(w, a.terminal_growth)
     if wacc_errors:
