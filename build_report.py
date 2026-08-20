@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.valuation.reporting import main
+from valuation_engine.reporting import main
 
 if __name__ == "__main__":
     main(Path(__file__).parent)

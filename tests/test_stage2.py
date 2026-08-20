@@ -13,10 +13,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.valuation import assumptions as asmp
-from src.valuation import historical
-from src.valuation.fcff import build_fcff, statement_frame, validate_fcff
-from src.valuation.forecasting import build_forecast
+from valuation_engine import assumptions as asmp
+from valuation_engine import historical
+from valuation_engine.fcff import build_fcff, statement_frame, validate_fcff
+from valuation_engine.forecasting import build_forecast
 from tests.test_stage1 import make_history
 
 
@@ -198,7 +198,7 @@ class _FakeTicker:
 def test_usd_reporter_is_converted_when_the_flag_is_right(monkeypatch):
     """Infosys genuinely reports in USD while trading in INR. Left unconverted, its cash
     flows would be paired with a rupee share price and the valuation divided by the rate."""
-    from src.valuation import nse_data
+    from valuation_engine import nse_data
 
     monkeypatch.setattr(nse_data, "fx_to_inr", lambda c: 95.0)
     # Revenue 20bn USD against a market cap of ~4.7tn INR.
@@ -210,7 +210,7 @@ def test_usd_reporter_is_converted_when_the_flag_is_right(monkeypatch):
 def test_usd_flag_is_ignored_when_the_statements_are_already_in_rupees(monkeypatch):
     """HCL Technologies carries a USD flag while reporting in INR. Believing it would
     multiply the company by the exchange rate and overstate it a hundredfold."""
-    from src.valuation import nse_data
+    from valuation_engine import nse_data
 
     monkeypatch.setattr(nse_data, "fx_to_inr", lambda c: 95.0)
     # Revenue 1.3tn INR against a market cap of ~3.7tn INR: already consistent.
@@ -220,7 +220,7 @@ def test_usd_flag_is_ignored_when_the_statements_are_already_in_rupees(monkeypat
 
 
 def test_inr_reporter_is_never_converted():
-    from src.valuation import nse_data
+    from valuation_engine import nse_data
 
     currency, rate = nse_data.resolve_currency(_FakeTicker("INR", 1.0e12), "TCS.NS", 2.6e12)
     assert (currency, rate) == ("INR", 1.0)
@@ -229,7 +229,7 @@ def test_inr_reporter_is_never_converted():
 def test_conversion_is_skipped_when_market_cap_is_unavailable(monkeypatch):
     """Without the cross-check there is no evidence, and converting on a guess would be a
     silent hundredfold error while leaving it alone is at worst the raw filing."""
-    from src.valuation import nse_data
+    from valuation_engine import nse_data
 
     monkeypatch.setattr(nse_data, "fx_to_inr", lambda c: 95.0)
     currency, rate = nse_data.resolve_currency(_FakeTicker("USD", 0), "X.NS", 20e9)
@@ -298,12 +298,12 @@ def test_terminal_roic_is_a_single_source_used_everywhere():
     Stage 4 and the capex fade cannot silently disagree about what ROIC is."""
     hist = make_history(years=8)
     a = asmp.derive(hist, historical.analyse(hist), "ONESOURCE")
-    from src.valuation.terminal_value import estimate_roic
+    from valuation_engine.terminal_value import estimate_roic
     assert a.terminal_roic == pytest.approx(estimate_roic(hist, a.tax_rate))
 
 
 def test_terminal_consistent_capex_ratio_matches_the_reinvestment_identity():
-    from src.valuation.terminal_value import terminal_consistent_capex_ratio
+    from valuation_engine.terminal_value import terminal_consistent_capex_ratio
     ebitda_margin, da_pct, nwc_pct, tax_rate, growth, roic = 0.25, 0.05, 0.02, 0.25, 0.06, 0.15
     ratio, _ = terminal_consistent_capex_ratio(ebitda_margin, da_pct, nwc_pct, tax_rate, growth, roic)
 
@@ -315,7 +315,7 @@ def test_terminal_consistent_capex_ratio_matches_the_reinvestment_identity():
 
 
 def test_terminal_consistent_capex_ratio_never_goes_negative():
-    from src.valuation.terminal_value import terminal_consistent_capex_ratio
+    from valuation_engine.terminal_value import terminal_consistent_capex_ratio
     # Deliberately extreme: very low D&A, very low growth, so the naive formula would go
     # negative. Negative capex is not a real thing a company can do.
     ratio, _ = terminal_consistent_capex_ratio(
@@ -326,7 +326,7 @@ def test_terminal_consistent_capex_ratio_never_goes_negative():
 
 
 def test_reinvestment_rate_for_growth_caps_when_roic_at_or_below_growth():
-    from src.valuation.terminal_value import reinvestment_rate_for_growth
+    from valuation_engine.terminal_value import reinvestment_rate_for_growth
     rate, effective_growth = reinvestment_rate_for_growth(growth=0.08, roic=0.06)
     assert effective_growth < 0.08
     assert effective_growth == pytest.approx(0.05)

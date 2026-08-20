@@ -15,8 +15,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.valuation.blended import WIDE_DISPERSION, build_blended
-from src.valuation.monte_carlo import (
+from valuation_engine.blended import WIDE_DISPERSION, build_blended
+from valuation_engine.monte_carlo import (
     GROWTH_MARGIN_CORRELATION,
     MAX_GROWTH_SIGMA,
     MIN_GROWTH_SIGMA,

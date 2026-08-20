@@ -11,16 +11,16 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.valuation import assumptions as asmp
-from src.valuation import historical
-from src.valuation.beta import estimate_beta
-from src.valuation.data_bridge import DataQualityError, data_quality_report, load_history
-from src.valuation.dcf import cross_checks, reverse_dcf, run_dcf
-from src.valuation.fcff import build_fcff
-from src.valuation.forecasting import build_forecast
-from src.valuation.market_data import fetch_price_history, fetch_snapshot, risk_free_rate
-from src.valuation.universe import NIFTY_UNIVERSE
-from src.valuation.wacc import build_wacc, validate_wacc
+from valuation_engine import assumptions as asmp
+from valuation_engine import historical
+from valuation_engine.beta import estimate_beta
+from valuation_engine.data_bridge import DataQualityError, data_quality_report, load_history
+from valuation_engine.dcf import cross_checks, reverse_dcf, run_dcf
+from valuation_engine.fcff import build_fcff
+from valuation_engine.forecasting import build_forecast
+from valuation_engine.market_data import fetch_price_history, fetch_snapshot, risk_free_rate
+from valuation_engine.universe import NIFTY_UNIVERSE
+from valuation_engine.wacc import build_wacc, validate_wacc
 from stage1_historical import resolve_market
 
 RULE = "=" * 78

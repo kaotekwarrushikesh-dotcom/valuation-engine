@@ -45,10 +45,10 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from src.valuation import assumptions as asmp
-from src.valuation.dcf import run_dcf
-from src.valuation.fcff import build_fcff
-from src.valuation.forecasting import build_forecast
+from valuation_engine import assumptions as asmp
+from valuation_engine.dcf import run_dcf
+from valuation_engine.fcff import build_fcff
+from valuation_engine.forecasting import build_forecast
 
 DEFAULT_TRIALS = 2000
 DEFAULT_SEED = 12345

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from src.valuation.assumptions import ForecastAssumptions
+from valuation_engine.assumptions import ForecastAssumptions
 
 
 @dataclass

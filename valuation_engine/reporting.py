@@ -25,12 +25,12 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from src.valuation import assumptions as asmp
-from src.valuation import historical
-from src.valuation.data_bridge import data_quality_report, load_history
-from src.valuation.fcff import FCFF_LINES, build_fcff, validate_fcff
-from src.valuation.forecasting import build_forecast, forecast_vs_history
-from src.valuation.universe import INDIA_MARKET, NIFTY_UNIVERSE
+from valuation_engine import assumptions as asmp
+from valuation_engine import historical
+from valuation_engine.data_bridge import data_quality_report, load_history
+from valuation_engine.fcff import FCFF_LINES, build_fcff, validate_fcff
+from valuation_engine.forecasting import build_forecast, forecast_vs_history
+from valuation_engine.universe import INDIA_MARKET, NIFTY_UNIVERSE
 
 INK = colors.HexColor("#1a1a1a")
 MUTED = colors.HexColor("#6b6b6b")

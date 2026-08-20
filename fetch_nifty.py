@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from src.valuation.nse_data import fetch_universe
-from src.valuation.universe import NIFTY_UNIVERSE
+from valuation_engine.nse_data import fetch_universe
+from valuation_engine.universe import NIFTY_UNIVERSE
 
 DATA_DIR = Path(__file__).parent / "data" / "nifty"
 

@@ -15,15 +15,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.valuation import assumptions as asmp
-from src.valuation import historical
-from src.valuation.beta import BetaEstimate
-from src.valuation.dcf import run_dcf
-from src.valuation.fcff import build_fcff
-from src.valuation.forecasting import build_forecast
-from src.valuation.scenarios import BASE, BEAR, BULL, build_scenario, run_all_scenarios
-from src.valuation.sensitivity import driver_sensitivity, growth_margin_grid, wacc_terminal_growth_grid
-from src.valuation.wacc import build_wacc
+from valuation_engine import assumptions as asmp
+from valuation_engine import historical
+from valuation_engine.beta import BetaEstimate
+from valuation_engine.dcf import run_dcf
+from valuation_engine.fcff import build_fcff
+from valuation_engine.forecasting import build_forecast
+from valuation_engine.scenarios import BASE, BEAR, BULL, build_scenario, run_all_scenarios
+from valuation_engine.sensitivity import driver_sensitivity, growth_margin_grid, wacc_terminal_growth_grid
+from valuation_engine.wacc import build_wacc
 from tests.test_stage1 import make_history
 
 NOMINAL_GDP = 0.09

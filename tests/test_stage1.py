@@ -13,9 +13,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.valuation import assumptions as asmp
-from src.valuation import historical
-from src.valuation.data_bridge import data_quality_report, derive_valuation_inputs
+from valuation_engine import assumptions as asmp
+from valuation_engine import historical
+from valuation_engine.data_bridge import data_quality_report, derive_valuation_inputs
 
 
 def make_history(years=10, revenue0=1000.0, growth=0.08, ebitda_margin=0.30, **overrides):

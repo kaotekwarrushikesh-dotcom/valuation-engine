@@ -12,12 +12,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.valuation.global_data import _fx_rate as fx_rate_impl
-from src.valuation.global_data import (
+from valuation_engine.global_data import _fx_rate as fx_rate_impl
+from valuation_engine.global_data import (
     _normalise_quote,
     _resolve_statement_currency,
 )
-from src.valuation.universe import (
+from valuation_engine.universe import (
     GENERIC_MARKET,
     INDIA_MARKET,
     US_MARKET,
@@ -46,7 +46,7 @@ def test_major_unit_quotes_pass_through_untouched():
 def test_far_apart_currencies_are_decided_by_market_cap(monkeypatch):
     """Infosys reports in USD, quotes in INR, roughly 95 to one: the plausibility test
     discriminates here, and must, since the flag is correct in this case."""
-    import src.valuation.global_data as gd
+    import valuation_engine.global_data as gd
     monkeypatch.setattr(gd, "_fx_rate", lambda a, b: 95.0)
     currency, rate, notes = _resolve_statement_currency("USD", "INR", 20e9, 4.7e12)
     assert currency == "USD"
@@ -57,7 +57,7 @@ def test_far_apart_currencies_are_decided_by_market_cap(monkeypatch):
 def test_far_apart_currencies_ignore_a_wrong_flag(monkeypatch):
     """HCL Technologies is tagged USD while reporting in rupees; believing the tag would
     overstate the company a hundredfold."""
-    import src.valuation.global_data as gd
+    import valuation_engine.global_data as gd
     monkeypatch.setattr(gd, "_fx_rate", lambda a, b: 95.0)
     currency, rate, _ = _resolve_statement_currency("USD", "INR", 1.3e12, 3.7e12)
     assert (currency, rate) == ("INR", 1.0)
@@ -66,7 +66,7 @@ def test_far_apart_currencies_ignore_a_wrong_flag(monkeypatch):
 def test_similar_currencies_trust_the_declared_flag(monkeypatch):
     """Shell reports in USD and quotes in GBP at about 0.79; both readings look equally
     plausible on a price-to-sales test, so the source's tag is the better evidence."""
-    import src.valuation.global_data as gd
+    import valuation_engine.global_data as gd
     monkeypatch.setattr(gd, "_fx_rate", lambda a, b: 0.79)
     currency, rate, notes = _resolve_statement_currency("USD", "GBP", 285e9, 183e9)
     assert currency == "USD"

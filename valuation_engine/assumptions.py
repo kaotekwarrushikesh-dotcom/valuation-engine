@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from src.valuation.terminal_value import estimate_roic, terminal_consistent_capex_ratio
+from valuation_engine.terminal_value import estimate_roic, terminal_consistent_capex_ratio
 
 # Long-run nominal GDP growth: roughly 2% real plus a 2% inflation target. This is the
 # ceiling on any terminal growth rate, not a forecast of it.

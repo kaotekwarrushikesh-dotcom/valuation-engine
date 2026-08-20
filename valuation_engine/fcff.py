@@ -42,7 +42,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from src.valuation.forecasting import Forecast
+from valuation_engine.forecasting import Forecast
 
 # FCFF lines in statement order, so the output reads top to bottom like a statement.
 # Labels are neutral rather than "Add"/"Less", because the working capital line can go

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "valuation-engine"
+version = "1.0.0"
+description = "Institutional-style valuation engine: DCF, WACC, comparables, scenarios and Monte Carlo"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "yfinance>=0.2.40",
+    "requests>=2.31",
+]
+
+[tool.setuptools.packages.find]
+# The curated Nifty CSVs are not packaged: they are Module 1 output checked in for
+# reproducibility rather than library code. A consumer installing this engine gets
+# pipeline.run_quick_pipeline(), which fetches live and needs no local files, while the
+# full curated workflow raises a clear error explaining it needs a checkout.
+include = ["valuation_engine*"]

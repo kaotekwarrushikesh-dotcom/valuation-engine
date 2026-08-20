@@ -9,19 +9,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.valuation import assumptions as asmp
-from src.valuation import historical
-from src.valuation.beta import estimate_beta
-from src.valuation.blended import build_blended
-from src.valuation.comparables import compute_multiples, run_comparables
-from src.valuation.data_bridge import DataQualityError, data_quality_report, load_history
-from src.valuation.dcf import run_dcf
-from src.valuation.fcff import build_fcff
-from src.valuation.forecasting import build_forecast
-from src.valuation.market_data import fetch_price_history, fetch_snapshot, risk_free_rate
-from src.valuation.monte_carlo import run_monte_carlo
-from src.valuation.universe import NIFTY_UNIVERSE, peers_for
-from src.valuation.wacc import build_wacc, validate_wacc
+from valuation_engine import assumptions as asmp
+from valuation_engine import historical
+from valuation_engine.beta import estimate_beta
+from valuation_engine.blended import build_blended
+from valuation_engine.comparables import compute_multiples, run_comparables
+from valuation_engine.data_bridge import DataQualityError, data_quality_report, load_history
+from valuation_engine.dcf import run_dcf
+from valuation_engine.fcff import build_fcff
+from valuation_engine.forecasting import build_forecast
+from valuation_engine.market_data import fetch_price_history, fetch_snapshot, risk_free_rate
+from valuation_engine.monte_carlo import run_monte_carlo
+from valuation_engine.universe import NIFTY_UNIVERSE, peers_for
+from valuation_engine.wacc import build_wacc, validate_wacc
 from stage1_historical import resolve_market
 
 RULE = "=" * 84

@@ -22,6 +22,24 @@ with the first diagnosis published here that turned out to be wrong and how it w
 disproved. **The DCF is never quoted on its own**: the app pairs it with comparables, or
 says plainly when no comparables exist.
 
+## Install as a library
+
+The engine is a pip-installable package, so other projects (Module 4's AI analyst among
+them) can run a valuation as an ordinary function call rather than vendoring a copy:
+
+```bash
+pip install "git+https://github.com/kaotekwarrushikesh-dotcom/valuation-engine.git"
+```
+
+```python
+from valuation_engine import pipeline
+result = pipeline.run_quick_pipeline("ASML")
+```
+
+`run_quick_pipeline` fetches live and works anywhere. `run_pipeline`, the full curated
+workflow, reads the Nifty CSVs checked into this repo and therefore needs a checkout; it
+raises a clear error rather than failing obscurely if they are missing.
+
 ## Quick start
 
 ```bash
@@ -391,7 +409,8 @@ see is worse than no fallback at all.
 ```text
 valuation_engine/
 ├── data/nifty/                 one cleaned CSV per company, Module 1 schema
-├── src/valuation/
+├── valuation_engine/
+│   ├── pipeline.py             the full and quick workflows, callable without Streamlit
 │   ├── nse_data.py             NSE loader into Module 1's schema
 │   ├── global_data.py          live fetch + currency handling for any company (Quick DCF)
 │   ├── global_search.py        name/ticker resolution for Quick DCF

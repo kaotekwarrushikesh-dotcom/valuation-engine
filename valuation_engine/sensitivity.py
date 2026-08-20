@@ -28,10 +28,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from src.valuation import assumptions as asmp
-from src.valuation.dcf import run_dcf
-from src.valuation.fcff import FCFFResult, build_fcff
-from src.valuation.forecasting import build_forecast
+from valuation_engine import assumptions as asmp
+from valuation_engine.dcf import run_dcf
+from valuation_engine.fcff import FCFFResult, build_fcff
+from valuation_engine.forecasting import build_forecast
 
 # Default grids: +/- 2 points around the base case in both dimensions, which is wide enough
 # to show the shape of the sensitivity without so wide that most cells are implausible.

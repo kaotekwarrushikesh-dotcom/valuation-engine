@@ -31,8 +31,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from src.valuation.fcff import FCFFResult
-from src.valuation.terminal_value import (
+from valuation_engine.fcff import FCFFResult
+from valuation_engine.terminal_value import (
     TerminalCashFlow,
     TerminalValue,
     exit_multiple,

@@ -11,11 +11,11 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.valuation import assumptions as asmp
-from src.valuation import historical
-from src.valuation.data_bridge import DataQualityError, data_quality_report, load_history
-from src.valuation.market_data import DEFAULT_EQUITY_RISK_PREMIUM, fetch_snapshot, risk_free_rate
-from src.valuation.universe import INDIA_MARKET, NIFTY_UNIVERSE
+from valuation_engine import assumptions as asmp
+from valuation_engine import historical
+from valuation_engine.data_bridge import DataQualityError, data_quality_report, load_history
+from valuation_engine.market_data import DEFAULT_EQUITY_RISK_PREMIUM, fetch_snapshot, risk_free_rate
+from valuation_engine.universe import INDIA_MARKET, NIFTY_UNIVERSE
 
 RULE = "=" * 78
 

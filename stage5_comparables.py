@@ -9,15 +9,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.valuation.comparables import (
+from valuation_engine.comparables import (
     MIN_PEERS,
     MULTIPLE_LABELS,
     compute_multiples,
     run_comparables,
 )
-from src.valuation.data_bridge import DataQualityError, load_history
-from src.valuation.market_data import fetch_snapshot
-from src.valuation.universe import NIFTY_UNIVERSE, peers_for
+from valuation_engine.data_bridge import DataQualityError, load_history
+from valuation_engine.market_data import fetch_snapshot
+from valuation_engine.universe import NIFTY_UNIVERSE, peers_for
 from stage1_historical import resolve_market
 
 RULE = "=" * 78

@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from src.valuation.beta import BetaEstimate
+from valuation_engine.beta import BetaEstimate
 
 # A company cannot borrow far below its own government. Where the measured rate implies it,
 # the measurement is wrong rather than the company being a better credit than the sovereign.

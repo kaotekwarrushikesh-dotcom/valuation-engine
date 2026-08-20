@@ -23,10 +23,10 @@ chosen for effect rather than derived from a plausible downside or upside case.
 
 from dataclasses import dataclass
 
-from src.valuation import assumptions as asmp
-from src.valuation.dcf import DCFResult, run_dcf
-from src.valuation.fcff import FCFFResult, build_fcff
-from src.valuation.forecasting import Forecast, build_forecast
+from valuation_engine import assumptions as asmp
+from valuation_engine.dcf import DCFResult, run_dcf
+from valuation_engine.fcff import FCFFResult, build_fcff
+from valuation_engine.forecasting import Forecast, build_forecast
 
 
 @dataclass(frozen=True)
